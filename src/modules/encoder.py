@@ -25,12 +25,14 @@ class HighwayEncoder(nn.Module):
         self.gates = nn.ModuleList([nn.Linear(d_hidden, d_hidden)
                                     for _ in range(n_layers)])
 
+        self.relu = nn.ReLU()
+
     def forward(self, x):
         for gate, transform in zip(self.gates, self.transforms):
             # Shapes of g, t, and x are all (batch_size, seq_len, hidden_size)
             g = torch.sigmoid(gate(x))
             #t = F.relu(transform(x))
-            t = nn.ReLU(transform(x))
+            t = self.relu(transform(x))
 
             x = g * t + (1 - g) * x
 
@@ -69,6 +71,7 @@ class LSTM_Encoder(nn.Module):
         x = pack_padded_sequence(x, lengths, batch_first=True)
 
         # Apply RNN
+        self.rnn.flatten_parameters()
         x, _ = self.rnn(x)  # (batch_size, seq_len, 2 * hidden_size)
 
         # Unpack and reverse sort

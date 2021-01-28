@@ -180,6 +180,7 @@ def get_available_devices():
         gpu_ids += [gpu_id for gpu_id in range(torch.cuda.device_count())]
         device = torch.device(f'cuda:{gpu_ids[0]}')
         torch.cuda.set_device(device)
+        os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
     else:
         device = torch.device('cpu')
 
@@ -324,7 +325,7 @@ def get_logger(log_dir, name):
 def torch_from_json(path, dtype=torch.float32):
     """Load a PyTorch Tensor from a JSON file.
     Args:
-        path (str): Path to the JSON file to load.
+        path (pathlib.Path): Path to the JSON file to load.
         dtype (torch.dtype): Data type of loaded array.
     Returns:
         tensor (torch.Tensor): Tensor loaded from JSON file.
@@ -508,3 +509,6 @@ def compute_f1(a_gold, a_pred):
     recall = 1.0 * num_same / len(gold_toks)
     f1 = (2 * precision * recall) / (precision + recall)
     return f1
+
+def get_file_path(data_root : Path, dataset_name: str, file_name:str):
+    return data_root.joinpath(dataset_name, file_name)

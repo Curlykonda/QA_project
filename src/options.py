@@ -1,6 +1,7 @@
 import argparse
 
-from src.utils import get_data_root
+from src.utils import get_data_root, get_project_root
+
 
 def get_setup_args():
     """Get arguments needed in setup.py."""
@@ -8,10 +9,9 @@ def get_setup_args():
 
     add_common_args(parser)
 
-    parser.add_argument('--data_root', type=str, default=get_data_root())
-    parser.add_argument('--dataset_name', type=str, default='squad')
     parser.add_argument('--download', type=int, default=0)
 
+    # note: we used Squad v1.1
     parser.add_argument('--train_url', type=str, default='https://github.com/chrischute/squad/data/train-v2.0.json')
     parser.add_argument('--dev_url', type=str, default='https://github.com/chrischute/squad/data/dev-v2.0.json')
     parser.add_argument('--test_url', type=str, default='https://github.com/chrischute/squad/data/test-v2.0.json')
@@ -22,41 +22,18 @@ def get_setup_args():
 
     parser.add_argument('--glove_url', type=str, default='http://nlp.stanford.edu/data/glove.840B.300d.zip')
 
-    parser.add_argument('--dev_meta_file',
-                        type=str,
-                        default='dev_meta.json')
-    parser.add_argument('--test_meta_file',
-                        type=str,
-                        default='test_meta.json')
-    parser.add_argument('--word2idx_file',
-                        type=str,
-                        default='word2idx.json')
-    parser.add_argument('--char2idx_file',
-                        type=str,
-                        default='char2idx.json')
-    parser.add_argument('--answer_file',
-                        type=str,
-                        default='answer.json')
-    parser.add_argument('--para_limit',
-                        type=int,
-                        default=400,
-                        help='Max number of words in a paragraph')
-    parser.add_argument('--ques_limit',
-                        type=int,
-                        default=50,
-                        help='Max number of words to keep from a question')
-    parser.add_argument('--test_para_limit',
-                        type=int,
-                        default=1000,
-                        help='Max number of words in a paragraph at test time')
-    parser.add_argument('--test_ques_limit',
-                        type=int,
-                        default=100,
-                        help='Max number of words in a question at test time')
-    parser.add_argument('--char_dim',
-                        type=int,
-                        default=64,
-                        help='Size of char vectors (char-level embeddings)')
+    parser.add_argument('--dev_meta_file', type=str, default='dev_meta.json')
+    parser.add_argument('--test_meta_file', type=str, default='test_meta.json')
+    parser.add_argument('--word2idx_file', type=str, default='word2idx.json')
+    parser.add_argument('--char2idx_file', type=str, default='char2idx.json')
+    parser.add_argument('--answer_file', type=str, default='answer.json')
+
+    parser.add_argument('--para_limit', type=int, default=400, help='Max number of words in a paragraph')
+    parser.add_argument('--ques_limit', type=int, default=50, help='Max number of words to keep from a question')
+    parser.add_argument('--test_para_limit', type=int, default=1000, help='Max number of words in a paragraph at test time')
+    parser.add_argument('--test_ques_limit', type=int, default=100, help='Max number of words in a question at test time')
+    parser.add_argument('--char_dim', type=int, default=64, help='Size of char vectors (char-level embeddings)')
+
     parser.add_argument('--glove_dim',
                         type=int,
                         default=300,
@@ -174,15 +151,15 @@ def get_test_args():
 
 def add_common_args(parser):
     """Add arguments common to all 3 scripts: setup.py, train.py, test.py"""
-    parser.add_argument('--train_record_file',
-                        type=str,
-                        default='train.npz')
-    parser.add_argument('--dev_record_file',
-                        type=str,
-                        default='dev.npz')
-    parser.add_argument('--test_record_file',
-                        type=str,
-                        default='test.npz')
+
+    parser.add_argument('--project_root', type=str, default=get_project_root())
+    parser.add_argument('--data_root', type=str, default=get_data_root())
+    parser.add_argument('--dataset_name', type=str, default='squad')
+
+    parser.add_argument('--train_record_file', type=str, default='train.npz')
+    parser.add_argument('--dev_record_file', type=str, default='dev.npz')
+    parser.add_argument('--test_record_file', type=str, default='test.npz')
+
     parser.add_argument('--word_emb_file', type=str, default='word_emb.json')
     parser.add_argument('--char_emb_file', type=str, default='char_emb.json')
 
@@ -196,19 +173,24 @@ def add_train_test_args(parser):
     parser.add_argument('--name',
                         '-n',
                         type=str,
-                        required=True,
+                        #required=True,
+                        default='train',
                         help='Name to identify training or test run.')
+
+    parser.add_argument('--model_name', type=str, default='bidaf', choices=['bidaf'])
+    parser.add_argument('--optim', type=str, default='adadelta', choices=['adam', 'adadelta'])
+
     parser.add_argument('--max_ans_len',
                         type=int,
                         default=15,
                         help='Maximum length of a predicted answer.')
     parser.add_argument('--num_workers',
                         type=int,
-                        default=4,
+                        default=0,
                         help='Number of sub-processes to use per data loader.')
     parser.add_argument('--save_dir',
                         type=str,
-                        default='./save/',
+                        default=get_project_root().joinpath('save'),
                         help='Base directory for saving information.')
     parser.add_argument('--batch_size',
                         type=int,
@@ -217,9 +199,9 @@ def add_train_test_args(parser):
                               multiple GPUs are available.')
     parser.add_argument('--use_squad_v2',
                         type=lambda s: s.lower().startswith('t'),
-                        default=True,
+                        default=False,
                         help='Whether to use SQuAD 2.0 (unanswerable) questions.')
-    parser.add_argument('--hidden_size',
+    parser.add_argument('--d_hidden',
                         type=int,
                         default=100,
                         help='Number of features in encoder hidden layers.')

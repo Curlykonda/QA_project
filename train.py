@@ -1,3 +1,4 @@
+
 import torch
 import torch.nn as nn
 import torch.utils.data as data
@@ -9,7 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 import json
 from json import dumps
-from random import random
+import random
 from collections import OrderedDict
 
 from tqdm import tqdm
@@ -30,20 +31,22 @@ def main(args):
     log = utils.get_logger(args.save_dir, args.name)
     tbx = SummaryWriter(args.save_dir)
     device, args.gpu_ids = utils.get_available_devices()
-    #log.info(f'Args: {dumps(vars(args), indent=4, sort_keys=True)}')
+    # log.info(f'Args: {dumps(vars(args), indent=4, sort_keys=True)}')
     args.batch_size *= max(1, len(args.gpu_ids))
 
     # Set random seed
     log.info(f'Using random seed {args.seed}...')
-    random.seed(args.seed)
+    random.seed(args.seed) # rnd = random.Random(seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
-    torch.backends.cudnn.benchmark = True # no real need for reproducibility atm
+    torch.backends.cudnn.benchmark = False # no real need for reproducibility atm
+    torch.backends.cudnn.deterministic = True
     #torch.cuda.
 
     # Get embeddings
     log.info('Loading embeddings...')
-    word_vectors = utils.torch_from_json(args.word_emb_file)
+
+    word_vectors = utils.torch_from_json(args.data_root.joinpath(args.dataset_name, args.word_emb_file))
 
     # Get model
     log.info('Building model...')
@@ -57,7 +60,7 @@ def main(args):
         raise ValueError()
 
 
-    model = nn.DataParallel(model, args.gpu_ids)
+    #model = nn.DataParallel(model, args.gpu_ids)
 
     # load checkpoint
     # if args.load_path:
@@ -72,17 +75,17 @@ def main(args):
     ema = EMA(model, args.ema_decay) # Exponential Moving Average (over model parameters)
 
     # Get saver
-    # saver = utils.CheckpointSaver(args.save_dir,
-    #                              max_checkpoints=args.max_checkpoints,
-    #                              metric_name=args.metric_name,
-    #                              maximize_metric=args.maximize_metric,
-    #                              log=log)
+    saver = utils.CheckpointSaver(args.save_dir,
+                                 max_checkpoints=args.max_checkpoints,
+                                 metric_name=args.metric_name,
+                                 maximize_metric=args.maximize_metric,
+                                 log=log)
 
     # Get optimizer and scheduler
-    if "adadelta" == args.optimizer.lower():
+    if "adadelta" == args.optim.lower():
         optimizer = optim.Adadelta(model.parameters(), args.lr,
                                    weight_decay=args.l2_wd)
-    elif "adam" == args.optimizer.lower():
+    elif "adam" == args.optim.lower():
         optimizer = optim.Adam(model.parameters(), args.lr,
                                    weight_decay=args.l2_wd)
     else:
@@ -92,20 +95,23 @@ def main(args):
 
     # Get data loader
     log.info('Building dataset...')
-    train_dataset = SQuAD(args.train_record_file, args.use_squad_v2)
+    train_file = args.data_root.joinpath(args.dataset_name, args.train_record_file)
+    train_dataset = SQuAD(args.data_root.joinpath(args.dataset_name, args.train_record_file),
+                          args.use_squad_v2)
     train_loader = data.DataLoader(train_dataset,
                                    batch_size=args.batch_size,
                                    shuffle=True,
                                    num_workers=args.num_workers,
                                    collate_fn=squad_collate_fn)
-    dev_dataset = SQuAD(args.dev_record_file, args.use_squad_v2)
+    dev_dataset = SQuAD(args.data_root.joinpath(args.dataset_name, args.dev_record_file),
+                        args.use_squad_v2)
     dev_loader = data.DataLoader(dev_dataset,
                                  batch_size=args.batch_size,
                                  shuffle=False,
                                  num_workers=args.num_workers,
                                  collate_fn=squad_collate_fn)
 
-    # Train
+    # Training loop
     log.info('Training...')
     steps_till_eval = args.eval_steps
     epoch = step // len(train_dataset)
@@ -131,7 +137,7 @@ def main(args):
                 loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
                 optimizer.step()
-                scheduler.step(step // batch_size)
+                scheduler.step() #step // batch_size
                 ema(model, step // batch_size)
 
                 # Log info
@@ -151,11 +157,12 @@ def main(args):
                     # Evaluate and save checkpoint
                     log.info(f'Evaluating at step {step}...')
                     ema.assign(model)
+                    dev_eval_file = utils.get_file_path(args.data_root, args.dataset_name, args.dev_eval_file)
                     results, pred_dict = evaluate(model, dev_loader, device,
-                                                  args.dev_eval_file,
+                                                  dev_eval_file,
                                                   args.max_ans_len,
                                                   args.use_squad_v2)
-                    #saver.save(step, model, results[args.metric_name], device)
+                    saver.save(step, model, results[args.metric_name], device)
                     ema.resume(model)
 
                     # Log to console
@@ -168,7 +175,7 @@ def main(args):
                         tbx.add_scalar(f'dev/{k}', v, step)
                     utils.visualize(tbx,
                                    pred_dict=pred_dict,
-                                   eval_path=args.dev_eval_file,
+                                   eval_path=dev_eval_file,
                                    step=step,
                                    split='dev',
                                    num_visuals=args.num_visuals)
@@ -180,7 +187,7 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2):
     model.eval()
     pred_dict = {}
     with open(eval_file, 'r') as fh:
-        gold_dict = json_load(fh)
+        gold_dict = json.load(fh)
     with torch.no_grad(), \
             tqdm(total=len(data_loader.dataset)) as progress_bar:
         for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, ids in data_loader:

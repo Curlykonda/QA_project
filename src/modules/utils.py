@@ -19,7 +19,8 @@ def masked_softmax(logits, mask, dim=-1, log_softmax=False):
     eps= 1e30
     mask = mask.type(torch.float32)
     masked_logits = mask * logits + (1 - mask) * -eps # mask value of 0 indicates that it should be masked off
-    logits.masked_fill_((1-mask), -eps)
+    logits.masked_fill_((1-mask).bool(), -eps)
+    #RuntimeError: Expected object of scalar type Bool but got scalar type Float for argument #2 'mask' in call to _th_masked_fill_bool_
     softmax_fn = F.log_softmax if log_softmax else F.softmax
     probs = softmax_fn(masked_logits, dim)
 
