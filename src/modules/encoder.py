@@ -26,6 +26,7 @@ class HighwayEncoder(nn.Module):
                                     for _ in range(n_layers)])
 
         self.relu = nn.ReLU()
+        #self.sigm = nn.Sigmoid()
 
     def forward(self, x):
         for gate, transform in zip(self.gates, self.transforms):
@@ -39,7 +40,7 @@ class HighwayEncoder(nn.Module):
         return x
 
 
-class LSTM_Encoder(nn.Module):
+class BiLSTM_Encoder(nn.Module):
     """General-purpose layer for encoding a sequence using a bidirectional RNN.
     Encoded output is the RNN's hidden state at each position, which
     has shape `(batch_size, seq_len, hidden_size * 2)`.
@@ -49,17 +50,14 @@ class LSTM_Encoder(nn.Module):
         n_layers (int): Number of layers of RNN cells to use.
         drop_prob (float): Probability of zero-ing out activations.
     """
-    def __init__(self,
-                 d_input,
-                 d_hidden,
-                 n_layers,
-                 drop_prob=0.):
-        super(LSTM_Encoder, self).__init__()
-        self.drop_prob = drop_prob
-        self.rnn = nn.LSTM(d_input, d_hidden, n_layers,
-                           batch_first=True,
-                           bidirectional=True,
-                           dropout=drop_prob if n_layers > 1 else 0.)
+    def __init__(self, d_input, d_hidden, n_layers, drop_prob=0., bi=True):
+        super(BiLSTM_Encoder, self).__init__()
+
+        self.dropout_module = nn.Dropout(p=drop_prob)
+        self.bi_lstm = nn.LSTM(d_input, d_hidden, n_layers,
+                               batch_first=True,
+                               bidirectional=bi,
+                               dropout=drop_prob if n_layers > 1 else 0.)
 
     def forward(self, x, lengths):
         # Save original padded length for use by pad_packed_sequence
@@ -71,18 +69,17 @@ class LSTM_Encoder(nn.Module):
         x = pack_padded_sequence(x, lengths, batch_first=True)
 
         # Apply RNN
-        self.rnn.flatten_parameters()
-        x, _ = self.rnn(x)  # (batch_size, seq_len, 2 * hidden_size)
+        self.bi_lstm.flatten_parameters()
+        rnn_out, _ = self.bi_lstm(x)  # (batch_size, seq_len, 2 * hidden_size)
 
         # Unpack and reverse sort
-        x, _ = pad_packed_sequence(x, batch_first=True, total_length=orig_len)
+        rnn_out, _ = pad_packed_sequence(rnn_out, batch_first=True, total_length=orig_len)
         _, unsort_idx = sort_idx.sort(0)
-        x = x[unsort_idx]   # (batch_size, seq_len, 2 * hidden_size)
+        # both directions are concatenated implicitly
+        rnn_out = rnn_out[unsort_idx]   # (batch_size, seq_len, 2 * hidden_size)
 
         # Apply dropout (RNN applies dropout after all but the last layer)
-        x = F.dropout(x, self.drop_prob, self.training)
-
-        return x
+        return self.dropout_module(rnn_out)
 
 
 class BiDAFOutput(nn.Module):
@@ -108,10 +105,11 @@ class BiDAFOutput(nn.Module):
         self.att_linear_1 = nn.Linear(8 * d_hidden, 1)
         self.mod_linear_1 = nn.Linear(2 * d_hidden, 1)
 
-        self.rnn = LSTM_Encoder(d_input=2 * d_hidden,
-                                d_hidden=d_hidden,
-                                n_layers=1,
-                                drop_prob=drop_prob)
+        # LSTM encoder for end indices applied on top of M (output of 2-layer
+        self.rnn = BiLSTM_Encoder(d_input=2 * d_hidden,
+                                  d_hidden=d_hidden,
+                                  n_layers=1,
+                                  drop_prob=drop_prob)
 
         self.att_linear_2 = nn.Linear(8 * d_hidden, 1)
         self.mod_linear_2 = nn.Linear(2 * d_hidden, 1)

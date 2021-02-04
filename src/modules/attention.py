@@ -22,11 +22,13 @@ class BiDAFAttention(nn.Module):
     """
     def __init__(self, hidden_size, drop_prob=0.1):
         super(BiDAFAttention, self).__init__()
-        self.drop_prob = drop_prob
-        self.c_weight = nn.Parameter(torch.zeros(hidden_size, 1))
-        self.q_weight = nn.Parameter(torch.zeros(hidden_size, 1))
-        self.cq_weight = nn.Parameter(torch.zeros(1, 1, hidden_size))
-        for weight in (self.c_weight, self.q_weight, self.cq_weight):
+
+        self.drop_layer = nn.Dropout(p=drop_prob)
+
+        self.c_lin_project = nn.Parameter(torch.zeros(hidden_size, 1)) # requires_grad=True (default)
+        self.q_lin_project = nn.Parameter(torch.zeros(hidden_size, 1))
+        self.cq_lin_project = nn.Parameter(torch.zeros(1, 1, hidden_size))
+        for weight in (self.c_lin_project, self.q_lin_project, self.cq_lin_project):
             nn.init.xavier_uniform_(weight)
         self.bias = nn.Parameter(torch.zeros(1))
 
@@ -40,11 +42,11 @@ class BiDAFAttention(nn.Module):
         s2 = masked_softmax(s, c_mask, dim=1)       # (batch_size, c_len, q_len)
 
         # (bs, c_len, q_len) x (bs, q_len, hid_size) => (bs, c_len, hid_size)
-        a = torch.bmm(s1, q)
+        c2q = torch.bmm(s1, q) # compute context2query attention
         # (bs, c_len, c_len) x (bs, c_len, hid_size) => (bs, c_len, hid_size)
-        b = torch.bmm(torch.bmm(s1, s2.transpose(1, 2)), c)
+        q2c = torch.bmm(torch.bmm(s1, s2.transpose(1, 2)), c) # query2context attention
 
-        x = torch.cat([c, a, c * a, c * b], dim=2)  # (bs, c_len, 4 * hid_size)
+        x = torch.cat([c, c2q, c * c2q, c * q2c], dim=2)  # (bs, c_len, 4 * hid_size)
 
         return x
 
@@ -58,14 +60,15 @@ class BiDAFAttention(nn.Module):
             Equation 1 in https://arxiv.org/abs/1611.01603
         """
         c_len, q_len = c.size(1), q.size(1)
-        c = F.dropout(c, self.drop_prob, self.training)  # (bs, c_len, hid_size)
-        q = F.dropout(q, self.drop_prob, self.training)  # (bs, q_len, hid_size)
+        # apply dropout to context and question
+        c = self.drop_layer(c)  # (bs, c_len, hid_size)
+        q = self.drop_layer(q)  # (bs, q_len, hid_size)
 
+        # s = alpha(c,q) = w_s^T [c;q;c*q]
         # Shapes: (batch_size, c_len, q_len)
-        s0 = torch.matmul(c, self.c_weight).expand([-1, -1, q_len])
-        s1 = torch.matmul(q, self.q_weight).transpose(1, 2)\
-                                           .expand([-1, c_len, -1])
-        s2 = torch.matmul(c * self.cq_weight, q.transpose(1, 2))
+        s0 = torch.matmul(c, self.c_lin_project).expand([-1, -1, q_len])
+        s1 = torch.matmul(q, self.q_lin_project).transpose(1, 2).expand([-1, c_len, -1])
+        s2 = torch.matmul(c * self.cq_lin_project, q.transpose(1, 2))
         s = s0 + s1 + s2 + self.bias
 
         return s

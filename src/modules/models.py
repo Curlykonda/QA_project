@@ -27,20 +27,20 @@ class BiDAF(nn.Module):
         self.emb = BiDAF_Embedding(word_vectors=word_vectors,
                                    d_hidden=d_hidden,
                                    p_drop=p_drop)
-
-        self.enc = LSTM_Encoder(d_input=d_hidden,
-                                d_hidden=d_hidden,
-                                n_layers=1,
-                                drop_prob=p_drop)
-
+        # contextual emb, i.e. interaction of context words independent of query
+        self.enc = BiLSTM_Encoder(d_input=d_hidden,
+                                  d_hidden=d_hidden,
+                                  n_layers=1,
+                                  drop_prob=p_drop)
+        # attention flow, i.e. query-context interactions
         self.att = BiDAFAttention(hidden_size=2 * d_hidden,
                                   drop_prob=p_drop)
-
-        self.mod = LSTM_Encoder(d_input=8 * d_hidden,
-                                d_hidden=d_hidden,
-                                n_layers=2,
-                                drop_prob=p_drop)
-
+        # modelling layer, interaction among context words conditioned on queries
+        self.mod = BiLSTM_Encoder(d_input=8 * d_hidden,
+                                  d_hidden=d_hidden,
+                                  n_layers=2,
+                                  drop_prob=p_drop)
+        # output layer to produce start & end indices
         self.out = BiDAFOutput(d_hidden=d_hidden,
                                drop_prob=p_drop)
 
