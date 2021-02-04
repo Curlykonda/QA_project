@@ -22,12 +22,15 @@ def get_setup_args():
 
     parser.add_argument('--glove_url', type=str, default='http://nlp.stanford.edu/data/glove.840B.300d.zip')
 
+    parser.add_argument('--tokenizer', type=str, default='spacy', choices=['spacy', 'roberta'])
+
     parser.add_argument('--dev_meta_file', type=str, default='dev_meta.json')
     parser.add_argument('--test_meta_file', type=str, default='test_meta.json')
     parser.add_argument('--word2idx_file', type=str, default='word2idx.json')
     parser.add_argument('--char2idx_file', type=str, default='char2idx.json')
     parser.add_argument('--answer_file', type=str, default='answer.json')
 
+    parser.add_argument('--vocab_size', type=int, default=30000, help='Max number of word in vocabulary')
     parser.add_argument('--para_limit', type=int, default=400, help='Max number of words in a paragraph')
     parser.add_argument('--ques_limit', type=int, default=50, help='Max number of words to keep from a question')
     parser.add_argument('--test_para_limit', type=int, default=1000, help='Max number of words in a paragraph at test time')
@@ -38,6 +41,10 @@ def get_setup_args():
                         type=int,
                         default=300,
                         help='Size of GloVe word vectors to use')
+    parser.add_argument('--we_dim',
+                        type=int,
+                        default=300,
+                        help='Size of word embeddings vectors')
     parser.add_argument('--glove_num_vecs',
                         type=int,
                         default=2196017,
@@ -160,7 +167,9 @@ def add_common_args(parser):
     parser.add_argument('--dev_record_file', type=str, default='dev.npz')
     parser.add_argument('--test_record_file', type=str, default='test.npz')
 
-    parser.add_argument('--word_emb_file', type=str, default='word_emb.json')
+    parser.add_argument('--use_pt_we', type=bool, default=True, help="Use pre-trained word embeddings")
+    parser.add_argument('--use_roberta_token', type=bool, default=True, help="Use Roberta to map words to indices")
+    parser.add_argument('--word_emb_file', type=str, default='glove_word_emb.json')
     parser.add_argument('--char_emb_file', type=str, default='char_emb.json')
 
     parser.add_argument('--train_eval_file', type=str, default='train_eval.json')
