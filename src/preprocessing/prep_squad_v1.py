@@ -17,7 +17,7 @@ from collections import Counter
 from subprocess import run
 from tqdm import tqdm
 from zipfile import ZipFile
-from transformers import RobertaTokenizer
+from transformers import RobertaTokenizer, RobertaTokenizerFast
 
 from src.options import get_setup_args
 
@@ -41,8 +41,8 @@ def download_url(url, output_path, show_progress=True):
         urllib.request.urlretrieve(url, output_path)
 
 
-def url_to_data_path(data_root: Path, url):
-    return data_root.joinpath(url.split('/')[-1])
+def url_to_data_path(data_root: str, url) -> Path:
+    return Path(data_root).joinpath(url.split('/')[-1])
 
 
 def download(args):
@@ -67,7 +67,8 @@ def download(args):
     print('Downloading spacy language model...')
     run(['python', '-m', 'spacy', 'download', 'en'])
 
-def clean_tokens(sent, tokenize=True):
+
+def clean_tokens(sent, tokenize=False):
     doc = nlp(sent)
     if tokenize:
         return [token.text for token in doc]
@@ -76,6 +77,7 @@ def clean_tokens(sent, tokenize=True):
 
 
 def convert_idx(text):
+    # create list of character spans for each token
     current = 0
     spans = []
     for token in clean_tokens(text, tokenize=True):
@@ -87,6 +89,58 @@ def convert_idx(text):
         current += len(token)
     return spans
 
+
+def proc_raw_file(filename, data_type, debug=False):
+    print(f"Pre-processing {data_type} examples...")
+    examples = []
+    eval_examples = {}
+    total_qs = 0
+    with open(filename, "r") as fh:
+        source = json.load(fh)
+        data = source['data'] if not debug else source['data'][:100]
+
+        for article in tqdm(data):
+            for para in article["paragraphs"]:
+                # context
+                context = clean_tokens(para["context"].replace("''", '" ').replace("``", '" ')).strip()
+
+                #spans = convert_idx(context) # What is this used for later?
+
+                # questions
+                for qa in para["qas"]:
+                    total_qs += 1
+                    ques = clean_tokens(qa["question"].replace("''", '" ').replace("``", '" ')).strip()
+
+                    # answers
+                    start_chars, end_chars = [], []
+                    answer_texts = []
+                    for answer in qa["answers"]:
+                        answer_text = answer["text"].strip()
+                        answer_start = answer['answer_start']
+                        answer_end = answer_start + len(answer_text)
+
+                        answer_texts.append(answer_text)
+
+                        start_chars.append(answer_start) # start position of char of answer text in context
+                        end_chars.append(answer_end)
+
+                    example = {"context": context,
+                               "question": ques,
+                               "ans_texts": answer_texts,
+                               'start_chars': start_chars,
+                               'end_chars': end_chars,
+                               "id": total_qs}
+                    examples.append(example)
+
+                    eval_examples[str(total_qs)] = {"context": context,
+                                                    "question": ques,
+                                                    'start_chars': start_chars,
+                                                    'end_chars': end_chars,
+                                                    "answers": answer_texts,
+                                                    "uuid": qa["id"]}
+        print(f"{len(examples)} questions in total")
+
+    return examples, eval_examples
 
 def proc_file_with_counter(filename, data_type, word_counter, char_counter, tokenize=True, debug=False):
     """
@@ -106,7 +160,6 @@ def proc_file_with_counter(filename, data_type, word_counter, char_counter, toke
 
             'id': {"context": context, "question": ques, "spans": spans, "answers": answer_texts, "uuid": qa["id"]}
     """
-
 
     print(f"Pre-processing {data_type} examples...")
     examples = []
@@ -128,7 +181,8 @@ def proc_file_with_counter(filename, data_type, word_counter, char_counter, toke
                     context_tokens = clean_tokens(context)
                     context_chars = [list(token) for token in context_tokens]
                     for token in context_tokens:
-                        word_counter[token] += len(para["qas"]) # increase count for each question in whose context 'token' appears
+                        word_counter[token] += len(
+                            para["qas"])  # increase count for each question in whose context 'token' appears
                         for char in token:
                             char_counter[char] += len(para["qas"])
 
@@ -148,25 +202,30 @@ def proc_file_with_counter(filename, data_type, word_counter, char_counter, toke
 
                     # answers
                     y1s, y2s = [], []
+                    start_chars, end_chars = [], []
                     answer_texts = []
                     for answer in qa["answers"]:
                         answer_text = answer["text"]
                         answer_start = answer['answer_start']
                         answer_end = answer_start + len(answer_text)
+
                         answer_texts.append(answer_text)
                         answer_span = []
                         for idx, span in enumerate(spans):
                             if not (answer_end <= span[0] or answer_start >= span[1]):
                                 answer_span.append(idx)
                         y1, y2 = answer_span[0], answer_span[-1]
-                        y1s.append(y1) # answer start, i.e. word position in the context
-                        y2s.append(y2) # answer end, i.e. position of last word of the answer
+                        y1s.append(y1)  # answer start, i.e. word position in the context
+                        y2s.append(y2)  # answer end, i.e. position of last word of the answer
+                        start_chars.append(answer_start)
+                        end_chars.append(answer_end)
 
                     if tokenize:
                         example = {"context_tokens": context_tokens,
                                    "context_chars": context_chars,
                                    "ques_tokens": ques_tokens,
                                    "ques_chars": ques_chars,
+                                   "ans_texts": answer_texts,
                                    "y1s": y1s,
                                    "y2s": y2s,
                                    "id": total_qs}
@@ -175,22 +234,26 @@ def proc_file_with_counter(filename, data_type, word_counter, char_counter, toke
                                    "context_chars": None,
                                    "ques_tokens": ques,
                                    "ques_chars": None,
+                                   "ans_texts": answer_texts,
+                                   'start_chars': start_chars,
+                                   'end_chars': end_chars,
                                    "y1s": y1s,
                                    "y2s": y2s,
                                    "id": total_qs}
                     examples.append(example)
 
                     eval_examples[str(total_qs)] = {"context": context,
-                                                 "question": ques,
-                                                 "spans": spans,
-                                                 "answers": answer_texts,
-                                                 "uuid": qa["id"]}
+                                                    "question": ques,
+                                                    "spans": spans,
+                                                    "answers": answer_texts,
+                                                    "uuid": qa["id"]}
         print(f"{len(examples)} questions in total")
 
     return examples, eval_examples
 
 
-def get_embedding(counter, data_type, min_freq=-1, vocab_size=30000, emb_file=None, vec_size=None, num_vectors=None, normal_scale=1):
+def get_embedding(counter, data_type, min_freq=-1, vocab_size=30000, emb_file=None, vec_size=None, num_vectors=None,
+                  normal_scale=1):
     """
     With pre-trained embs: for each word in the vocab, load its corresponding embedding
     NO pre-trained embs provided: initialise random numpy vectors sampled from normal distribution
@@ -207,7 +270,8 @@ def get_embedding(counter, data_type, min_freq=-1, vocab_size=30000, emb_file=No
 
     print(f"Pre-processing {data_type} vectors...")
     embedding_dict = {}
-    filt_tokens = [token for token, counts in counter.most_common(vocab_size) if counts > min_freq] # choose limit to filter out infrequent words
+    filt_tokens = [token for token, counts in counter.most_common(vocab_size) if
+                   counts > min_freq]  # choose limit to filter out infrequent words
 
     if emb_file is not None:
         assert vec_size is not None
@@ -228,9 +292,10 @@ def get_embedding(counter, data_type, min_freq=-1, vocab_size=30000, emb_file=No
             embedding_dict[token] = list(np.random.normal(scale=normal_scale, size=vec_size))
         print(f"{len(filt_tokens)} tokens have corresponding {data_type} embedding vector")
 
-    NULL = "--NULL--" # is this '<pad>' token??
-    OOV = "--OOV--" # replace with '<unk>' to match BERT terminology
-    token2idx_dict = {token: idx for idx, token in enumerate(embedding_dict.keys(), 2)} # start at 2 to reserve pos 0 and 1 for special tokens
+    NULL = "--NULL--"  # is this '<pad>' token??
+    OOV = "--OOV--"  # replace with '<unk>' to match BERT terminology
+    token2idx_dict = {token: idx for idx, token in
+                      enumerate(embedding_dict.keys(), 2)}  # start at 2 to reserve pos 0 and 1 for special tokens
     token2idx_dict[NULL] = 0
     token2idx_dict[OOV] = 1
     embedding_dict[NULL] = [0. for _ in range(vec_size)]
@@ -241,7 +306,7 @@ def get_embedding(counter, data_type, min_freq=-1, vocab_size=30000, emb_file=No
     return emb_mat, token2idx_dict
 
 
-def build_roberta_features(args, examples, tokenizer: RobertaTokenizer, data_split: str, out_file: str, is_test=False):
+def build_bert_features(args, examples, tokenizer, data_split: str, out_file: str, is_test=False):
     """
 
     :param args:
@@ -251,16 +316,14 @@ def build_roberta_features(args, examples, tokenizer: RobertaTokenizer, data_spl
     :param is_test:
     :return:
     """
-    para_limit = args.test_para_limit if is_test else args.para_limit
-    ques_limit = args.test_ques_limit if is_test else args.ques_limit
-    ans_limit = args.ans_limit
 
-    assert para_limit + ques_limit < tokenizer.max_len_sentences_pair
+    assert isinstance(tokenizer, RobertaTokenizerFast)
 
+    max_len = args.max_seq_len
     valid_ex = 0
     total_ex = 0
     meta = {}
-    context_ques_idxs = []
+    ques_cont_ids = []
     attention_masks = []
 
     y1s = []
@@ -269,45 +332,101 @@ def build_roberta_features(args, examples, tokenizer: RobertaTokenizer, data_spl
     for n, example in tqdm(enumerate(examples)):
         total_ex += 1
 
-        if drop_example(example, para_limit, ques_limit, ans_limit, is_test):
+        # jointly encode question-context pair with Transformer
+        # pair of sequences: <s> A </s></s> B </s>
+        # need to store Mask to avoid performing attention on padding token indices
+        question = example["question"]
+        context = example["context"]
+
+        # Note: implicit right-side padding
+        example_tokenized = tokenizer(question, context,
+                                        max_length=max_len,
+                                        padding='max_length',
+                                        truncation="only_second",
+                                        return_overflowing_tokens=True,
+                                        return_offsets_mapping=True)
+        # except Exception as e:
+        #     print(n)
+        #     print(e)
+
+        q_c_ids = example_tokenized['input_ids'][0]
+        cls_index = q_c_ids.index(tokenizer.cls_token_id)
+        attn_mask = example_tokenized['attention_mask'][0]
+        offsets = example_tokenized['offset_mapping'][0]
+        # example: [(0, 0), (0, 2), (3, 7), (8, 11), (12, 15), (16, 22), (23, 27), (28, 37), (38, 44), (45, 47)]
+        # tuple at each position corresponds to the indices and span of characters
+        # of the original sequence. using the tokenizer may split up words into word-parts
+        # (0, 0) corresponds to tokens that were not in the original sequence (e.g. [CLS])
+        sequence_ids = example_tokenized.sequence_ids()
+
+        # correct answer span for Tokenizer offset
+        # start_word_pos, end_word_pos = example["y1s"][-1], example["y2s"][-1]
+        start_char, end_char = example['start_chars'][-1], example['end_chars'][-1]
+
+        # distinguish which parts belong to question and which to context
+        # context tokens have sequence id = 1
+        c_start_idx = 0 # start token index
+        while sequence_ids[c_start_idx] != 1:
+            c_start_idx += 1
+
+        c_end_idx = len(q_c_ids) - 1 # end token index
+        while sequence_ids[c_end_idx] != 1:
+            c_end_idx -= 1
+
+        context_token_span = c_end_idx - c_start_idx
+        ques_token_span = c_start_idx - 1
+
+        # Detect if the answer is out of the span (in which case this feature is labeled with the CLS index).
+        if (offsets[c_start_idx][0] <= start_char and offsets[c_end_idx][1] >= end_char):
+            # Move the token_start_index and token_end_index to the two ends of the answer.
+            # Note: we could go after the last offset if the answer is the last word (edge case).
+            while c_start_idx < len(offsets) and offsets[c_start_idx][0] <= start_char:
+                c_start_idx += 1
+            start_position = c_start_idx - 1
+            while offsets[c_end_idx][1] >= end_char:
+                c_end_idx -= 1
+            end_position = c_end_idx + 1
+            #print(start_position, end_position)
+        else:
+            start_position, end_position = cls_index, cls_index
+            #print("The answer is not in this feature.")
+
+        answer_token_span = end_position - start_position
+
+        # TODO: truncate longer context passages instead of dropping them
+        if drop_example(args, ques_token_span, context_token_span, start_position, end_position, is_test):
             continue
 
         valid_ex += 1
 
+        if valid_ex % 2000 == 0 and args.debug:
+            # validate with ground truth answer
+            print(tokenizer.decode(q_c_ids[start_position: end_position + 1]))
+            print(example['ans_texts'][0])
 
-        # decision: jointly condition Roberta model on context+question, hence encode them together
-        # pair of sequences: <s> A </s></s> B </s>
-        # need to store Mask to avoid performing attention on padding token indices
-        context = example["context_tokens"]
-        question = example["ques_tokens"]
-        c_q_idxs, attn_mask = tokenizer(context, question, padding=True).values()
-        # TODO: check length
-
-        context_ques_idxs.append(c_q_idxs)
+        ques_cont_ids.append(q_c_ids)
         attention_masks.append(attn_mask)
 
-        if is_answerable(example):
-            start, end = example["y1s"][-1], example["y2s"][-1]
-        else:
-            start, end = -1, -1
-
-        y1s.append(start)
-        y2s.append(end)
+        y1s.append(start_position)
+        y2s.append(end_position)
         ids.append(example["id"])
 
+    print(f"Built {valid_ex} / {total_ex} instances of features in total")
+    meta["total"] = valid_ex
+
     # save as numpy array
+    # TODO: change to 'q_c_idxs' and adapt key usage elsewhere
     np.savez(build_data_path(args, 'roberta_' + out_file),
-             c_q_idxs=np.array(context_ques_idxs),
+             c_q_idxs=np.array(ques_cont_ids),
              attn_mask=np.array(attention_masks),
              y1s=np.array(y1s),
              y2s=np.array(y2s),
              ids=np.array(ids))
 
-    print(f"Built {valid_ex} / {total_ex} instances of features in total")
-    meta["total"] = valid_ex
     return meta
 
-#currently not in use
+
+# currently not in use
 
 # def convert_text2indices(args, data, word2idx_dict, char2idx_dict, is_test):
 #
@@ -369,20 +488,43 @@ def build_roberta_features(args, examples, tokenizer: RobertaTokenizer, data_spl
 #
 #     return context_idxs, context_char_idxs, ques_idxs, ques_char_idxs
 
-def drop_example(ex, c_limit, q_limit, a_limit, is_test_=False):
+def find_sub_list_indices(sub_list, org_list):
+    results = []
+
+    for ind in (i for i, e in enumerate(org_list) if e==sub_list[0]):
+        if org_list[ind:ind+len(sub_list)] == sub_list:
+            results.append((ind, ind+len(sub_list)-1))
+
+    return results
+
+def drop_example(args, q_len, c_len, ans_start, ans_end, is_test_=False):
+    '''
+    Filter out examples that exceed certain token limits or are not answerable
+    Return 'True' if example should be dropped
+    '''
+
+    c_limit = args.test_context_limit if is_test_ else args.context_limit
+    q_limit = args.test_ques_limit if is_test_ else args.ques_limit
+    a_limit = args.ans_limit
+    squad_v2 = args.use_squad_v2
+
     if is_test_:
-        drop = False
+        return False
+    elif c_len > c_limit:
+        return True
+    elif q_len > q_limit:
+        return True
+    elif is_answerable(ans_start, ans_end) and ans_end - ans_start > a_limit:
+        return True
+    elif not is_answerable(ans_start, ans_end) and not squad_v2:
+        return True
     else:
-        drop = len(ex["context_tokens"]) > c_limit or \
-               len(ex["ques_tokens"]) > q_limit or \
-               (is_answerable(ex) and
-                ex["y2s"][0] - ex["y1s"][0] > a_limit)
+        return False
 
-    return drop
 
-def is_answerable(example):
-    return len(example['y2s']) > 0 and len(example['y1s']) > 0
-
+def is_answerable(ans_start, ans_end):
+    #return len(example['y2s']) > 0 and len(example['y1s']) > 0
+    return ans_start > 0 and ans_end > 0
 
 
 def build_features(args, examples, data_split: str, out_file, word2idx_dict, char2idx_dict, is_test=False):
@@ -399,6 +541,7 @@ def build_features(args, examples, data_split: str, out_file, word2idx_dict, cha
     :param is_test:
     :return:
     """
+    max_len = args.max_seq_len
     para_limit = args.test_para_limit if is_test else args.para_limit
     ques_limit = args.test_ques_limit if is_test else args.ques_limit
     ans_limit = args.ans_limit
@@ -475,7 +618,7 @@ def build_features(args, examples, data_split: str, out_file, word2idx_dict, cha
         y2s.append(end)
         ids.append(example["id"])
 
-    #out_file = args.data_root.joinpath(args.dataset_name, out_file) # build modular path for output file
+    # out_file = args.data_root.joinpath(args.dataset_name, out_file) # build modular path for output file
 
     # save as numpy array
     np.savez(build_data_path(args, out_file),
@@ -499,24 +642,45 @@ def save_as_json(args, filename, obj, message=None):
         with open(f_name, "w") as fh:
             json.dump(obj, fh)
 
-def build_data_path(args, file_name):
-    return args.data_root.joinpath(args.dataset_name, file_name)
+
+def build_data_path(args, file_name) -> Path:
+    return Path(args.data_root).joinpath(args.dataset_name, file_name)
+
 
 def pre_process(args):
     # Process training set and use it to decide on the word/character vocabularies
-    word_counter, char_counter = Counter(), Counter()
-    train_examples, train_eval = proc_file_with_counter(args.train_file, "train", word_counter, char_counter,
-                                                        tokenize=not args.use_roberta_token, debug=True)
+    debug = args.debug
 
     if args.use_roberta_token:
+        train_examples, train_eval = proc_raw_file(args.train_file, "train", debug=debug)
 
-        tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
+        #tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
+        tokenizer = RobertaTokenizerFast.from_pretrained('roberta-base')
         word2idx = tokenizer.get_vocab()
-        char2idx = None
 
-        build_roberta_features(args, train_examples, tokenizer, "train", args.train_record_file)
+        build_bert_features(args, train_examples, tokenizer, "train", args.train_record_file)
+
+        save_as_json(args, args.train_eval_file, train_eval, message="train eval")
+        save_as_json(args, args.word2idx_file, word2idx, message="word dictionary")
+
+        dev_examples, dev_eval = proc_raw_file(args.dev_file, "dev")
+        dev_meta = build_bert_features(args, dev_examples, tokenizer, "dev", args.dev_record_file)
+
+        save_as_json(args, args.dev_eval_file, dev_eval, message="dev eval")
+        save_as_json(args, args.dev_meta_file, dev_meta, message="dev meta")
+
+        if args.include_test_examples:
+            # Process test set
+            test_examples, test_eval = proc_raw_file(args.test_file, "test")
+            test_meta = build_bert_features(args, test_examples, tokenizer, "test",
+                                            args.test_record_file, is_test=True)
+
+            save_as_json(args, args.test_meta_file, test_meta, message="test meta")
 
     else:
+        word_counter, char_counter = Counter(), Counter()
+        train_examples, train_eval = proc_file_with_counter(args.train_file, "train", word_counter, char_counter, debug=debug)
+
         # build embeddings and features from hand-crafted vocabulary
         word_emb_mat, word2idx = get_embedding(
             word_counter, 'word', emb_file=args.we_file, vec_size=args.glove_dim,
@@ -531,30 +695,19 @@ def pre_process(args):
 
         build_features(args, train_examples, "train", args.train_record_file, word2idx, char2idx)
 
-    save_as_json(args, args.train_eval_file, train_eval, message="train eval")
-    save_as_json(args, args.word2idx_file, word2idx, message="word dictionary")
+        save_as_json(args, args.train_eval_file, train_eval, message="train eval")
+        save_as_json(args, args.word2idx_file, word2idx, message="word dictionary")
 
-    #
-    # Process dev and test sets
-    #
-    dev_examples, dev_eval = proc_file_with_counter(args.dev_file, "dev", word_counter, char_counter)
-
-    if args.include_test_examples:
-        # Process test set
-        test_examples, test_eval = proc_file_with_counter(args.test_file, "test", word_counter, char_counter)
-        save_as_json(args, args.test_eval_file, test_eval, message="test eval")
-
-    if args.use_roberta_token:
-
-        dev_meta = build_roberta_features(args, dev_examples, tokenizer, "dev", args.dev_record_file)
+        # Process dev and test sets
+        #
+        dev_examples, dev_eval = proc_file_with_counter(args.dev_file, "dev", word_counter, char_counter,
+                                                        tokenize=not args.use_roberta_token)
 
         if args.include_test_examples:
-            test_meta = build_roberta_features(args, test_examples, tokenizer, "test", args.test_record_file,
-                                               is_test=True)
-            save_as_json(args, args.test_meta_file, test_meta, message="test meta")
-
-    else:
-        build_features(args, train_examples, "train", args.train_record_file, word2idx, char2idx)
+            # Process test set
+            test_examples, test_eval = proc_file_with_counter(args.test_file, "test", word_counter, char_counter,
+                                                              tokenize=not args.use_roberta_token)
+            save_as_json(args, args.test_eval_file, test_eval, message="test eval")
 
         dev_meta = build_features(args, dev_examples, "dev", args.dev_record_file, word2idx, char2idx)
 
@@ -563,8 +716,8 @@ def pre_process(args):
                                        args.test_record_file, word2idx, char2idx, is_test=True)
             save_as_json(args, args.test_meta_file, test_meta, message="test meta")
 
-    save_as_json(args, args.dev_eval_file, dev_eval, message="dev eval")
-    save_as_json(args, args.dev_meta_file, dev_meta, message="dev meta")
+        save_as_json(args, args.dev_eval_file, dev_eval, message="dev eval")
+        save_as_json(args, args.dev_meta_file, dev_meta, message="dev meta")
 
 
 if __name__ == '__main__':
@@ -574,15 +727,15 @@ if __name__ == '__main__':
     # Download resources
     if args_.download:
         download(args_)
-        #args_.train_file = url_to_data_path(args_.data_root, args_.train_url)
-        #args_.dev_file = url_to_data_path(args_.data_root, args_.dev_url)
-        #if args_.include_test_examples:
+        # args_.train_file = url_to_data_path(args_.data_root, args_.train_url)
+        # args_.dev_file = url_to_data_path(args_.data_root, args_.dev_url)
+        # if args_.include_test_examples:
         #    args_.test_file = url_to_data_path(args_.test_url)
 
-    args_.train_file = args_.data_root.joinpath(args_.dataset_name, args_.train_file)
-    args_.dev_file = args_.data_root.joinpath(args_.dataset_name, args_.dev_file)
+    args_.train_file = os.path.join(args_.data_root, args_.dataset_name, args_.train_file)
+    args_.dev_file = os.path.join(args_.data_root, args_.dataset_name, args_.dev_file)
     if args_.include_test_examples:
-        args_.test_file = args_.data_root.joinpath(args_.dataset_name, args_.test_file)
+        args_.test_file = os.path.join(args_.data_root, args_.dataset_name, args_.test_file)
 
     if args_.use_pt_we:
         glove_dir = url_to_data_path(args_.data_root, args_.glove_url.replace('.zip', ''))
@@ -590,6 +743,7 @@ if __name__ == '__main__':
         args_.we_file = glove_dir.joinpath(os.path.basename(glove_dir) + glove_ext)
     else:
         args_.we_file = None
+
     # Import spacy language model
     nlp = spacy.blank("en")
 
