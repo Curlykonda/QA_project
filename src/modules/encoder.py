@@ -85,8 +85,6 @@ class BiLSTM_Encoder(nn.Module):
 class BiDAFOutput(nn.Module):
     """Output layer used by BiDAF for question answering.
 
-
-
     Computes a linear transformation of the attention and modeling
     outputs, then takes the softmax of the result to get the start pointer.
     A bidirectional LSTM is then applied to the model output to produce `mod_2`.
@@ -115,7 +113,14 @@ class BiDAFOutput(nn.Module):
         self.mod_linear_2 = nn.Linear(2 * d_hidden, 1)
 
     def forward(self, att, mod, mask):
-        # Shapes: (batch_size, seq_len, 1)
+        """
+        :param att: interaction between context and query captured in attention scores (shape: (batch_size, c_len, 8 * hidden_size))
+        :param mod: context representations conditioned on query (shape: (batch_size, c_len, 2*hidden_size))
+        :param mask: mask off padding tokens
+        :return:
+        """
+
+        # Shapes: (batch_size, context_len, 1)
         logits_1 = self.att_linear_1(att) + self.mod_linear_1(mod)
         mod_2 = self.rnn(mod, mask.sum(-1))
         logits_2 = self.att_linear_2(att) + self.mod_linear_2(mod_2)
