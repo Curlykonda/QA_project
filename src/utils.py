@@ -15,12 +15,14 @@ import numpy as np
 
 from collections import Counter
 
-
-def get_project_root() -> Path:
+def get_project_root_path() -> Path:
     return Path(__file__).parent.parent
 
-def get_data_root() -> Path:
-    return get_project_root().joinpath("data")
+def get_project_root() -> str:
+    return str(get_project_root_path())
+
+def get_data_root() -> str:
+    return str(get_project_root_path().joinpath("data"))
 
 
 
@@ -65,7 +67,7 @@ class CheckpointSaver:
             minimizes the metric.
         log (logging.Logger): Optional logger for printing information.
     """
-    def __init__(self, save_dir, max_checkpoints, metric_name,
+    def __init__(self, save_dir: str, max_checkpoints, metric_name,
                  maximize_metric=False, log=None):
         super(CheckpointSaver, self).__init__()
 
@@ -248,7 +250,7 @@ def save_preds(preds, save_dir, file_name='predictions.csv'):
     return save_path
 
 
-def get_save_dir(base_dir: Path, name: str, training: bool, id_max=100):
+def get_save_dir(base_dir: str, name: str, training: bool, id_max=100) -> str:
     """Get a unique save directory by appending the smallest positive integer
     `id < id_max` that is not already taken (i.e., no dir exists with that id).
     Args:
@@ -261,16 +263,16 @@ def get_save_dir(base_dir: Path, name: str, training: bool, id_max=100):
     """
     for uid in range(1, id_max):
         subdir = 'train' if training else 'test'
-        save_dir = base_dir.joinpath(subdir, f'{name}-{uid:02d}')
+        save_dir = Path(base_dir).joinpath(subdir, f'{name}-{uid:02d}')
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
-            return save_dir
+            return str(save_dir)
 
     raise RuntimeError('Too many save directories created with the same name. \
                        Delete old save directories or use another name.')
 
 
-def get_logger(log_dir, name):
+def get_logger(log_dir: str, name):
     """Get a `logging.Logger` instance that prints to the console
     and an auxiliary file.
     Args:
@@ -395,8 +397,38 @@ def discretize(p_start, p_end, max_len=15, no_answer=False):
 
     return start_idxs, end_idxs
 
-
 def convert_tokens(eval_dict, qa_id, y_start_list, y_end_list, no_answer):
+    """Convert predictions to tokens from the context.
+    Args:
+        eval_dict (dict): Dictionary with eval info for the dataset. This is
+            used to perform the mapping from IDs and indices to actual text.
+        qa_id (int): List of QA example IDs.
+        y_start_list (list): List of start predictions.
+        y_end_list (list): List of end predictions.
+        no_answer (bool): Questions can have no answer. E.g., SQuAD 2.0.
+    Returns:
+        pred_dict (dict): Dictionary index IDs -> predicted answer text.
+        sub_dict (dict): Dictionary UUIDs -> predicted answer text (submission).
+    """
+    pred_dict = {}
+    sub_dict = {}
+    for qid, y_start, y_end in zip(qa_id, y_start_list, y_end_list):
+        context = eval_dict[str(qid)]["context"]
+        spans = eval_dict[str(qid)]["spans"]
+        uuid = eval_dict[str(qid)]["uuid"]
+        if no_answer and (y_start == 0 or y_end == 0):
+            pred_dict[str(qid)] = ''
+            sub_dict[uuid] = ''
+        else:
+            if no_answer:
+                y_start, y_end = y_start - 1, y_end - 1
+            start_idx = spans[y_start][0]
+            end_idx = spans[y_end][1]
+            pred_dict[str(qid)] = context[start_idx: end_idx]
+            sub_dict[uuid] = context[start_idx: end_idx]
+    return pred_dict, sub_dict
+
+def convert_bert_tokens(eval_dict, qa_id, y_start_list, y_end_list, no_answer):
     """Convert predictions to tokens from the context.
     Args:
         eval_dict (dict): Dictionary with eval info for the dataset. This is
@@ -510,5 +542,10 @@ def compute_f1(a_gold, a_pred):
     f1 = (2 * precision * recall) / (precision + recall)
     return f1
 
-def get_file_path(data_root : Path, dataset_name: str, file_name:str):
-    return data_root.joinpath(dataset_name, file_name)
+def get_file_path(data_root, dataset_name: str, file_name:str):
+    if isinstance(data_root, Path):
+        return data_root.joinpath(dataset_name, file_name)
+    elif isinstance(data_root, str):
+        return Path(data_root).joinpath(dataset_name, file_name)
+    else:
+        raise ValueError("data_root neither Path nor string")
