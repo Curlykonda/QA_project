@@ -1,6 +1,6 @@
 import argparse
 
-from src.utils import get_data_root, get_project_root
+from src.utils import get_data_root, get_project_root, get_project_root_path
 
 
 def get_setup_args():
@@ -31,10 +31,16 @@ def get_setup_args():
     parser.add_argument('--answer_file', type=str, default='answer.json')
 
     parser.add_argument('--vocab_size', type=int, default=30000, help='Max number of word in vocabulary')
-    parser.add_argument('--para_limit', type=int, default=400, help='Max number of words in a paragraph')
+    parser.add_argument('--max_seq_len', type=int, default=384, help='Max number of words in question + context')
+    parser.add_argument('--context_limit', type=int, default=400, help='Max number of words in a context')
     parser.add_argument('--ques_limit', type=int, default=50, help='Max number of words to keep from a question')
-    parser.add_argument('--test_para_limit', type=int, default=1000, help='Max number of words in a paragraph at test time')
+    parser.add_argument('--ans_limit', type=int, default=30, help='Max number of words in a training example answer')
+    parser.add_argument('--doc_stride', type=int, default=128, help='Number of tokens for context truncation')
+
+    parser.add_argument('--test_context_limit', type=int, default=1000, help='Max number of words in a paragraph at test time')
     parser.add_argument('--test_ques_limit', type=int, default=100, help='Max number of words in a question at test time')
+
+    parser.add_argument('--char_limit', type=int, default=16, help='Max number of chars to keep from a word')
     parser.add_argument('--char_dim', type=int, default=64, help='Size of char vectors (char-level embeddings)')
 
     parser.add_argument('--glove_dim',
@@ -49,14 +55,6 @@ def get_setup_args():
                         type=int,
                         default=2196017,
                         help='Number of GloVe vectors')
-    parser.add_argument('--ans_limit',
-                        type=int,
-                        default=30,
-                        help='Max number of words in a training example answer')
-    parser.add_argument('--char_limit',
-                        type=int,
-                        default=16,
-                        help='Max number of chars to keep from a word')
 
     parser.add_argument('--include_test_examples',
                         type=lambda s: s.lower().startswith('t'),
@@ -77,11 +75,11 @@ def get_train_args():
 
     parser.add_argument('--eval_steps',
                         type=int,
-                        default=50000,
+                        default=100, #50000
                         help='Number of steps between successive evaluations.')
     parser.add_argument('--lr',
                         type=float,
-                        default=0.5,
+                        default=0.001, #0.5
                         help='Learning rate.')
     parser.add_argument('--l2_wd',
                         type=float,
@@ -89,7 +87,7 @@ def get_train_args():
                         help='L2 weight decay.')
     parser.add_argument('--num_epochs',
                         type=int,
-                        default=30,
+                        default=10, #30
                         help='Number of epochs for which to train. Negative means forever.')
     parser.add_argument('--drop_prob',
                         type=float,
@@ -112,6 +110,8 @@ def get_train_args():
                         type=int,
                         default=224,
                         help='Random seed for reproducibility.')
+    parser.add_argument('--use_ema', type=bool, default=1, help='use Exp Moving Average for model parameters')
+
     parser.add_argument('--ema_decay',
                         type=float,
                         default=0.999,
@@ -127,6 +127,9 @@ def get_train_args():
         args.maximize_metric = True
     else:
         raise ValueError(f'Unrecognized metric name: "{args.metric_name}"')
+
+    if args.set_finetune_def:
+        args = set_default_finetune_args(args)
 
     return args
 
@@ -168,13 +171,19 @@ def add_common_args(parser):
     parser.add_argument('--test_record_file', type=str, default='test.npz')
 
     parser.add_argument('--use_pt_we', type=bool, default=True, help="Use pre-trained word embeddings")
-    parser.add_argument('--use_roberta_token', type=bool, default=True, help="Use Roberta to map words to indices")
-    parser.add_argument('--word_emb_file', type=str, default='glove_word_emb.json')
-    parser.add_argument('--char_emb_file', type=str, default='char_emb.json')
+    parser.add_argument('--use_roberta_token', type=bool, default=True, help="Use RobertaTokenizer to map words to indices")
+    parser.add_argument('--word_emb_file', type=str, default=None, choices=['glove_word_emb.json', None])
+    #parser.add_argument('--char_emb_file', type=str, default='char_emb.json')
 
     parser.add_argument('--train_eval_file', type=str, default='train_eval.json')
     parser.add_argument('--dev_eval_file', type=str, default='dev_eval.json')
     parser.add_argument('--test_eval_file', type=str, default='test_eval.json')
+
+    parser.add_argument('--use_squad_v2',
+                        type=lambda s: s.lower().startswith('t'),
+                        default=False,
+                        help='Whether to use SQuAD 2.0 (unanswerable) questions.')
+    parser.add_argument('--debug', type=bool, default=False)
 
 
 def add_train_test_args(parser):
@@ -186,39 +195,41 @@ def add_train_test_args(parser):
                         default='train',
                         help='Name to identify training or test run.')
 
-    parser.add_argument('--model_name', type=str, default='bidaf', choices=['bidaf'])
-    parser.add_argument('--optim', type=str, default='adadelta', choices=['adam', 'adadelta'])
+    parser.add_argument('--model_name', type=str, default='roberta-qa', choices=['bidaf', 'roberta-qa'])
+    parser.add_argument('--optim', type=str, default='adam', choices=['adam', 'adadelta'])
 
     parser.add_argument('--max_ans_len',
                         type=int,
                         default=15,
                         help='Maximum length of a predicted answer.')
-    parser.add_argument('--num_workers',
-                        type=int,
-                        default=0,
-                        help='Number of sub-processes to use per data loader.')
+    parser.add_argument('--num_workers', type=int, default=0, help='Number of sub-processes to use per data loader.')
     parser.add_argument('--save_dir',
                         type=str,
-                        default=get_project_root().joinpath('save'),
+                        default=str(get_project_root_path().joinpath('save')),
                         help='Base directory for saving information.')
     parser.add_argument('--batch_size',
                         type=int,
-                        default=64,
+                        default=6, #64
                         help='Batch size per GPU. Scales automatically when \
                               multiple GPUs are available.')
-    parser.add_argument('--use_squad_v2',
-                        type=lambda s: s.lower().startswith('t'),
-                        default=False,
-                        help='Whether to use SQuAD 2.0 (unanswerable) questions.')
+
     parser.add_argument('--d_hidden',
                         type=int,
                         default=100,
                         help='Number of features in encoder hidden layers.')
-    parser.add_argument('--num_visuals',
-                        type=int,
-                        default=10,
-                        help='Number of examples to visualize in TensorBoard.')
-    parser.add_argument('--load_path',
-                        type=str,
-                        default=None,
-                        help='Path to load as a model checkpoint.')
+
+    parser.add_argument('--num_visuals', type=int, default=10, help='Number of examples to visualize in TensorBoard.')
+    parser.add_argument('--load_path', type=str, default=None, help='Path to load as a model checkpoint.')
+
+    parser.add_argument('--freeze_bert_encoder', type=bool, default=True, help='Freeze layers of *BERT encoder')
+    parser.add_argument('--freeze_we_embs', type=bool, default=True, help='Freeze word embeddings')
+    parser.add_argument('--set_finetune_def', type=bool, default=True, help='Activate default finetuning parameters (e.g. lr=2e-5)')
+
+
+def set_default_finetune_args(args_):
+
+    args_.lr = 2e-5
+    args_.l2_wd = 0.001
+    args_.num_epochs = 3
+
+    return args_
