@@ -1,3 +1,4 @@
+from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -20,28 +21,271 @@ from src.options import *
 
 from src.modules.models import *
 from src.modules.utils import *
-from src.datasets.squad import SQuAD, squad_collate_fn
+from src.datasets.squad import SQuAD, squad_collate_fn, SquadBERT
 
 
+def train_roberta(args):
+    device, log, tbx, saver = setup_train(args)
+
+    # word embeddings
+
+    log.info('Using pt Roberta embeddings')
+    # else:
+    #     log.info('Loading some other embeddings...')
 
 
-def main(args):
+    # build model
+    log.info('Building model...')
+    # args.freeze_bert_encoder, args.freeze_we_embs
+    model = RobertaQA()
+    model = model.to(device)
+    model.train()
+
+    optimizer, scheduler, ema = get_optim_schedule(args, model)
+
+    # get dataloader
+    train_loader, dev_loader = get_dataloader(args, log)
+
+    # Training loop
+    log.info('Training...')
+    step = 0
+    steps_till_eval = args.eval_steps
+    epoch = step // len(train_loader)
+    while epoch != args.num_epochs:
+        epoch += 1
+        log.info(f'Starting epoch {epoch}...')
+        with torch.enable_grad(), \
+             tqdm(total=len(train_loader)) as progress_bar:
+            for q_c_ids, attn_mask, y1, y2, ids in train_loader:
+                # Setup for forward
+                q_c_ids = q_c_ids.to(device) # context-question-pair as word IDs
+                attn_mask = attn_mask.to(device)
+
+                batch_size = q_c_ids.size(0)
+                optimizer.zero_grad()
+
+                # Forward
+                start_logits, end_logits = model(q_c_ids, attn_mask)
+                y1, y2 = y1.to(device), y2.to(device)
+                loss_fnc = nn.CrossEntropyLoss()
+
+                loss = loss_fnc(start_logits, y1) + loss_fnc(end_logits, y2)
+                loss_val = loss.item()
+
+                # total_loss = None
+                # if start_positions is not None and end_positions is not None:
+                #     # If we are on multi-GPU, split add a dimension
+                #     if len(start_positions.size()) > 1:
+                #         start_positions = start_positions.squeeze(-1)
+                #     if len(end_positions.size()) > 1:
+                #         end_positions = end_positions.squeeze(-1)
+                #     # sometimes the start/end positions are outside our model inputs, we ignore these terms
+                #     ignored_index = start_logits.size(1)
+                #     start_positions.clamp_(0, ignored_index)
+                #     end_positions.clamp_(0, ignored_index)
+                #
+                #     loss_fct = CrossEntropyLoss(ignore_index=ignored_index)
+                #     start_loss = loss_fct(start_logits, start_positions)
+                #     end_loss = loss_fct(end_logits, end_positions)
+                #     total_loss = (start_loss + end_loss) / 2
+
+
+                # Backward
+                loss.backward()
+                nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
+                optimizer.step()
+                scheduler.step()
+                ema(model, step // batch_size)
+
+                # Log info
+                step += batch_size
+                progress_bar.update(batch_size)
+                progress_bar.set_postfix(epoch=epoch,
+                                         CE=loss_val)
+                tbx.add_scalar('train/CE', loss_val, step)
+                tbx.add_scalar('train/LR',
+                               optimizer.param_groups[0]['lr'],
+                               step)
+
+                steps_till_eval -= batch_size
+                if steps_till_eval <= 0:
+                    steps_till_eval = args.eval_steps
+
+                    # Evaluate and save checkpoint
+                    log.info(f'Evaluating at step {step}...')
+                    ema.assign(model)
+                    dev_eval_file = utils.get_file_path(Path(args.data_root), args.dataset_name, args.dev_eval_file)
+                    results, pred_dict = eval_bert(model, dev_loader, device,
+                                                    dev_eval_file,
+                                                    args.max_ans_len,
+                                                    args.use_squad_v2)
+
+                    saver.save(step, model, results[args.metric_name], device)
+                    ema.resume(model)
+
+                    # Log to console
+                    results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in results.items())
+                    log.info(f'Dev {results_str}')
+
+                    # Log to TensorBoard
+                    log.info('Visualizing in TensorBoard...')
+                    for k, v in results.items():
+                        tbx.add_scalar(f'dev/{k}', v, step)
+                    utils.visualize(tbx,
+                                    pred_dict=pred_dict,
+                                    eval_path=dev_eval_file,
+                                    step=step,
+                                    split='dev',
+                                    num_visuals=args.num_visuals)
+
+
+def get_dataloader(args, log):
+    """
+    Create (torch.utils.data.Dataloader) from preprocessed train and dev data
+
+    """
+
+    log.info('Building dataset...')
+    data_path = Path(args.data_root)
+    # Train
+
+    if args.use_roberta_token:
+
+        train_dataset = SquadBERT(data_path.joinpath(args.dataset_name, 'roberta_' + args.train_record_file),
+                                  args.use_squad_v2)
+
+        dev_dataset = SquadBERT(data_path.joinpath(args.dataset_name, 'roberta_' + args.dev_record_file),
+                                args.use_squad_v2)
+
+        col_fnc = None
+    else:
+
+        train_dataset = SQuAD(data_path.joinpath(args.dataset_name, args.train_record_file),
+                          args.use_squad_v2)
+        dev_dataset = SQuAD(data_path.joinpath(args.dataset_name, args.dev_record_file),
+                            args.use_squad_v2)
+
+        col_fnc = squad_collate_fn
+
+    train_loader = data.DataLoader(train_dataset,
+                                   batch_size=args.batch_size,
+                                   shuffle=True,
+                                   num_workers=args.num_workers,
+                                   collate_fn=col_fnc)
+
+    dev_loader = data.DataLoader(dev_dataset,
+                                 batch_size=args.batch_size,
+                                 shuffle=False,
+                                 num_workers=args.num_workers,
+                                 collate_fn=col_fnc)
+
+    return train_loader, dev_loader
+
+def get_optim_schedule(args, model):
+
+    if args.use_ema:
+        ema = EMA(model, args.ema_decay)  # Exponential Moving Average (over model parameters)
+    else:
+        ema = None
+
+    # Get optimizer and scheduler
+    if "adadelta" == args.optim.lower():
+        optimizer = optim.Adadelta(model.parameters(), args.lr,
+                                   weight_decay=args.l2_wd)
+    elif "adam" == args.optim.lower():
+        optimizer = optim.Adam(model.parameters(), args.lr,
+                               weight_decay=args.l2_wd)
+    else:
+        raise ValueError()
+
+    scheduler = sched.LambdaLR(optimizer, lambda s: 1.)  # Constant LR
+
+    return optimizer, scheduler, ema
+
+
+def setup_train(args):
     # Set up logging and devices
     args.save_dir = utils.get_save_dir(args.save_dir, args.name, training=True)
     log = utils.get_logger(args.save_dir, args.name)
     tbx = SummaryWriter(args.save_dir)
     device, args.gpu_ids = utils.get_available_devices()
-    # log.info(f'Args: {dumps(vars(args), indent=4, sort_keys=True)}')
+    log.info(f'Args: {dumps(vars(args), indent=4, sort_keys=True)}')
+
     args.batch_size *= max(1, len(args.gpu_ids))
 
     # Set random seed
     log.info(f'Using random seed {args.seed}...')
-    random.seed(args.seed) # rnd = random.Random(seed)
+    random.seed(args.seed)  # rnd = random.Random(seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
-    torch.backends.cudnn.benchmark = False # no real need for reproducibility atm
+    torch.backends.cudnn.benchmark = False  # no real need for reproducibility atm
     torch.backends.cudnn.deterministic = True
-    #torch.cuda.
+
+    # Get saver
+    saver = utils.CheckpointSaver(args.save_dir,
+                                 max_checkpoints=args.max_checkpoints,
+                                 metric_name=args.metric_name,
+                                 maximize_metric=args.maximize_metric,
+                                 log=log)
+
+    return device, log, tbx, saver
+
+def eval_bert(model, data_loader, device, eval_file, max_len, use_squad_v2):
+    ce_meter = utils.AverageMeter()
+
+    model.eval()
+    pred_dict = {}
+    with open(eval_file, 'r') as fh:
+        gold_dict = json.load(fh)
+    with torch.no_grad(), \
+            tqdm(total=len(data_loader.dataset)) as progress_bar:
+        for q_c_ids, attn_mask, y1, y2, ids in data_loader:
+            # Setup for forward
+            q_c_ids = q_c_ids.to(device)
+            attn_mask = attn_mask.to(device)
+
+            batch_size = q_c_ids.size(0)
+
+            # Forward
+            start_logits, end_logits = model(q_c_ids, attn_mask)
+            y1, y2 = y1.to(device), y2.to(device)
+
+            loss_fnc = nn.CrossEntropyLoss()
+            loss = loss_fnc(start_logits, y1) + loss_fnc(end_logits, y2)
+            ce_meter.update(loss.item(), batch_size)
+
+
+            # Get F1 and EM scores
+            softmax_fnc = nn.Softmax(dim=1)
+            p1, p2 = softmax_fnc(start_logits), softmax_fnc(end_logits)
+            starts, ends = utils.discretize(p1, p2, max_len, use_squad_v2)
+
+            # Log info
+            progress_bar.update(batch_size)
+            progress_bar.set_postfix(CE=ce_meter.avg)
+
+            preds, _ = utils.convert_bert_tokens(gold_dict,
+                                                 ids.tolist(),
+                                                 starts.tolist(),
+                                                 ends.tolist(),
+                                                 use_squad_v2)
+            pred_dict.update(preds)
+
+    model.train()
+
+    results = utils.eval_dicts(gold_dict, pred_dict, use_squad_v2)
+    results_list = [('CE', ce_meter.avg),
+                    ('F1', results['F1']),
+                    ('EM', results['EM'])]
+    if use_squad_v2:
+        results_list.append(('AvNA', results['AvNA']))
+    results = OrderedDict(results_list)
+
+    return results, pred_dict
+
+
+def train_bidaf(args):
+    device, log, tbx, saver = setup_train(args)
 
     # Get embeddings
     log.info('Loading embeddings...')
@@ -72,49 +316,15 @@ def main(args):
 
     model = model.to(device)
     model.train()
-    ema = EMA(model, args.ema_decay) # Exponential Moving Average (over model parameters)
+    optimizer, scheduler, ema = get_optim_schedule(args, model)
 
-    # Get saver
-    saver = utils.CheckpointSaver(args.save_dir,
-                                 max_checkpoints=args.max_checkpoints,
-                                 metric_name=args.metric_name,
-                                 maximize_metric=args.maximize_metric,
-                                 log=log)
-
-    # Get optimizer and scheduler
-    if "adadelta" == args.optim.lower():
-        optimizer = optim.Adadelta(model.parameters(), args.lr,
-                                   weight_decay=args.l2_wd)
-    elif "adam" == args.optim.lower():
-        optimizer = optim.Adam(model.parameters(), args.lr,
-                                   weight_decay=args.l2_wd)
-    else:
-        raise ValueError()
-
-    scheduler = sched.LambdaLR(optimizer, lambda s: 1.)  # Constant LR
-
-    # Get data loader
-    log.info('Building dataset...')
-    train_file = args.data_root.joinpath(args.dataset_name, args.train_record_file)
-    train_dataset = SQuAD(args.data_root.joinpath(args.dataset_name, args.train_record_file),
-                          args.use_squad_v2)
-    train_loader = data.DataLoader(train_dataset,
-                                   batch_size=args.batch_size,
-                                   shuffle=True,
-                                   num_workers=args.num_workers,
-                                   collate_fn=squad_collate_fn)
-    dev_dataset = SQuAD(args.data_root.joinpath(args.dataset_name, args.dev_record_file),
-                        args.use_squad_v2)
-    dev_loader = data.DataLoader(dev_dataset,
-                                 batch_size=args.batch_size,
-                                 shuffle=False,
-                                 num_workers=args.num_workers,
-                                 collate_fn=squad_collate_fn)
+    # Prep Dataloader
+    train_loader, dev_loader = get_dataloader(args, log)
 
     # Training loop
     log.info('Training...')
     steps_till_eval = args.eval_steps
-    epoch = step // len(train_dataset)
+    epoch = step // len(train_loader.dataset)
     while epoch != args.num_epochs:
         epoch += 1
         log.info(f'Starting epoch {epoch}...')
@@ -158,10 +368,10 @@ def main(args):
                     log.info(f'Evaluating at step {step}...')
                     ema.assign(model)
                     dev_eval_file = utils.get_file_path(args.data_root, args.dataset_name, args.dev_eval_file)
-                    results, pred_dict = evaluate(model, dev_loader, device,
-                                                  dev_eval_file,
-                                                  args.max_ans_len,
-                                                  args.use_squad_v2)
+                    results, pred_dict = eval_bidaf(model, dev_loader, device,
+                                                    dev_eval_file,
+                                                    args.max_ans_len,
+                                                    args.use_squad_v2)
                     saver.save(step, model, results[args.metric_name], device)
                     ema.resume(model)
 
@@ -180,8 +390,7 @@ def main(args):
                                    split='dev',
                                    num_visuals=args.num_visuals)
 
-
-def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2):
+def eval_bidaf(model, data_loader, device, eval_file, max_len, use_squad_v2):
     nll_meter = utils.AverageMeter()
 
     model.eval()
@@ -210,11 +419,11 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2):
             progress_bar.update(batch_size)
             progress_bar.set_postfix(NLL=nll_meter.avg)
 
-            preds, _ = utils.convert_tokens(gold_dict,
-                                           ids.tolist(),
-                                           starts.tolist(),
-                                           ends.tolist(),
-                                           use_squad_v2)
+            preds, _ = utils.convert_bert_tokens(gold_dict,
+                                                 ids.tolist(),
+                                                 starts.tolist(),
+                                                 ends.tolist(),
+                                                 use_squad_v2)
             pred_dict.update(preds)
 
     model.train()
@@ -231,26 +440,13 @@ def evaluate(model, data_loader, device, eval_file, max_len, use_squad_v2):
 
 
 if __name__ == '__main__':
-    main(get_train_args())
+    #train_bidaf(get_train_args())
+    train_roberta(get_train_args())
 
 
-
-# for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, ids in train_loader:
 # cw_idxs : context word indices (?)
 # cc_idxs : context chars
 # qw_idxs : question word indices
 # qc_idxs : question chars
 # y1 : answer start (?)
 # y2 : answer span (?)
-
-#                 # Setup for forward
-#                 cw_idxs = cw_idxs.to(device)
-#                 qw_idxs = qw_idxs.to(device)
-#                 batch_size = cw_idxs.size(0)
-#                 optimizer.zero_grad()
-#
-#                 # Forward
-#                 log_p1, log_p2 = model(cw_idxs, qw_idxs)
-#                 y1, y2 = y1.to(device), y2.to(device)
-#                 loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
-#                 loss_val = loss.item()
