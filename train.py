@@ -15,6 +15,7 @@ import random
 from collections import OrderedDict
 
 from tqdm import tqdm
+from transformers import RobertaTokenizerFast, PreTrainedTokenizerFast
 
 import src.utils as utils
 from src.options import *
@@ -24,7 +25,7 @@ from src.modules.utils import *
 from src.datasets.squad import SQuAD, squad_collate_fn, SquadBERT
 
 
-def train_roberta(args):
+def train_bert(args):
     device, log, tbx, saver = setup_train(args)
 
     # word embeddings
@@ -67,28 +68,15 @@ def train_roberta(args):
                 # Forward
                 start_logits, end_logits = model(q_c_ids, attn_mask)
                 y1, y2 = y1.to(device), y2.to(device)
-                loss_fnc = nn.CrossEntropyLoss()
 
+                # sometimes the start/end positions lie outside of model inputs -> ignore these terms
+                ignored_index = start_logits.size(1)
+                y1.clamp_(0, ignored_index)
+                y2.clamp_(0, ignored_index)
+
+                loss_fnc = nn.CrossEntropyLoss(ignore_index=ignored_index)
                 loss = loss_fnc(start_logits, y1) + loss_fnc(end_logits, y2)
                 loss_val = loss.item()
-
-                # total_loss = None
-                # if start_positions is not None and end_positions is not None:
-                #     # If we are on multi-GPU, split add a dimension
-                #     if len(start_positions.size()) > 1:
-                #         start_positions = start_positions.squeeze(-1)
-                #     if len(end_positions.size()) > 1:
-                #         end_positions = end_positions.squeeze(-1)
-                #     # sometimes the start/end positions are outside our model inputs, we ignore these terms
-                #     ignored_index = start_logits.size(1)
-                #     start_positions.clamp_(0, ignored_index)
-                #     end_positions.clamp_(0, ignored_index)
-                #
-                #     loss_fct = CrossEntropyLoss(ignore_index=ignored_index)
-                #     start_loss = loss_fct(start_logits, start_positions)
-                #     end_loss = loss_fct(end_logits, end_positions)
-                #     total_loss = (start_loss + end_loss) / 2
-
 
                 # Backward
                 loss.backward()
@@ -233,6 +221,11 @@ def setup_train(args):
 def eval_bert(model, data_loader, device, eval_file, max_len, use_squad_v2):
     ce_meter = utils.AverageMeter()
 
+    # get tokenizer to decode (pred) indices of Wordpiece tokens
+    tokenizer = RobertaTokenizerFast.from_pretrained('roberta-base')
+
+    assert isinstance(tokenizer, PreTrainedTokenizerFast)
+
     model.eval()
     pred_dict = {}
     with open(eval_file, 'r') as fh:
@@ -249,27 +242,35 @@ def eval_bert(model, data_loader, device, eval_file, max_len, use_squad_v2):
             # Forward
             start_logits, end_logits = model(q_c_ids, attn_mask)
             y1, y2 = y1.to(device), y2.to(device)
+            # ignore indices outside of model input
+            ignored_index = start_logits.size(1)
+            y1.clamp_(0, ignored_index)
+            y2.clamp_(0, ignored_index)
 
-            loss_fnc = nn.CrossEntropyLoss()
+            loss_fnc = nn.CrossEntropyLoss(ignore_index=ignored_index)
             loss = loss_fnc(start_logits, y1) + loss_fnc(end_logits, y2)
             ce_meter.update(loss.item(), batch_size)
-
 
             # Get F1 and EM scores
             softmax_fnc = nn.Softmax(dim=1)
             p1, p2 = softmax_fnc(start_logits), softmax_fnc(end_logits)
-            starts, ends = utils.discretize(p1, p2, max_len, use_squad_v2)
+            starts, ends = utils.discretize(p1, p2, max_len, use_squad_v2) # get start-end pair with max joint probability
 
             # Log info
             progress_bar.update(batch_size)
             progress_bar.set_postfix(CE=ce_meter.avg)
 
-            preds, _ = utils.convert_bert_tokens(gold_dict,
+            # map predicted start-end indices to tokens (from context)
+            preds = utils.convert_bert_tokens(tokenizer,
+                                                 q_c_ids.tolist(),
                                                  ids.tolist(),
                                                  starts.tolist(),
                                                  ends.tolist(),
                                                  use_squad_v2)
             pred_dict.update(preds)
+            #
+            # if len(pred_dict) > 100:
+            #     break
 
     model.train()
 
@@ -419,7 +420,7 @@ def eval_bidaf(model, data_loader, device, eval_file, max_len, use_squad_v2):
             progress_bar.update(batch_size)
             progress_bar.set_postfix(NLL=nll_meter.avg)
 
-            preds, _ = utils.convert_bert_tokens(gold_dict,
+            preds, _ = utils.convert_tokens(gold_dict,
                                                  ids.tolist(),
                                                  starts.tolist(),
                                                  ends.tolist(),
@@ -441,7 +442,7 @@ def eval_bidaf(model, data_loader, device, eval_file, max_len, use_squad_v2):
 
 if __name__ == '__main__':
     #train_bidaf(get_train_args())
-    train_roberta(get_train_args())
+    train_bert(get_train_args())
 
 
 # cw_idxs : context word indices (?)

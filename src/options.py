@@ -75,16 +75,10 @@ def get_train_args():
 
     parser.add_argument('--eval_steps',
                         type=int,
-                        default=100, #50000
+                        default=50000, #50000
                         help='Number of steps between successive evaluations.')
-    parser.add_argument('--lr',
-                        type=float,
-                        default=0.001, #0.5
-                        help='Learning rate.')
-    parser.add_argument('--l2_wd',
-                        type=float,
-                        default=0,
-                        help='L2 weight decay.')
+    parser.add_argument('--lr', type=float, default=0.001, help='Learning rate.') #0.5
+    parser.add_argument('--l2_wd', type=float, default=0, help='L2 weight decay.')
     parser.add_argument('--num_epochs',
                         type=int,
                         default=10, #30
@@ -93,23 +87,11 @@ def get_train_args():
                         type=float,
                         default=0.2,
                         help='Probability of zeroing an activation in dropout layers.')
-    parser.add_argument('--metric_name',
-                        type=str,
-                        default='F1',
-                        choices=('NLL', 'EM', 'F1'),
+    parser.add_argument('--metric_name', type=str, default='F1', choices=('NLL', 'EM', 'F1'),
                         help='Name of dev metric to determine best checkpoint.')
-    parser.add_argument('--max_checkpoints',
-                        type=int,
-                        default=5,
-                        help='Maximum number of checkpoints to keep on disk.')
-    parser.add_argument('--max_grad_norm',
-                        type=float,
-                        default=5.0,
-                        help='Maximum gradient norm for gradient clipping.')
-    parser.add_argument('--seed',
-                        type=int,
-                        default=224,
-                        help='Random seed for reproducibility.')
+    parser.add_argument('--max_checkpoints', type=int, default=5, help='Maximum number of checkpoints to keep on disk.')
+    parser.add_argument('--max_grad_norm', type=float, default=5.0, help='Maximum gradient norm for gradient clipping.')
+    parser.add_argument('--seed', type=int, default=224, help='Random seed for reproducibility.')
     parser.add_argument('--use_ema', type=bool, default=1, help='use Exp Moving Average for model parameters')
 
     parser.add_argument('--ema_decay',
@@ -192,7 +174,7 @@ def add_train_test_args(parser):
                         '-n',
                         type=str,
                         #required=True,
-                        default='train',
+                        default='roberta-qa',
                         help='Name to identify training or test run.')
 
     parser.add_argument('--model_name', type=str, default='roberta-qa', choices=['bidaf', 'roberta-qa'])
@@ -222,7 +204,7 @@ def add_train_test_args(parser):
     parser.add_argument('--load_path', type=str, default=None, help='Path to load as a model checkpoint.')
 
     parser.add_argument('--freeze_bert_encoder', type=bool, default=True, help='Freeze layers of *BERT encoder')
-    parser.add_argument('--freeze_we_embs', type=bool, default=True, help='Freeze word embeddings')
+    parser.add_argument('--freeze_we_embs', type=bool, default=False, help='Freeze word embeddings')
     parser.add_argument('--set_finetune_def', type=bool, default=True, help='Activate default finetuning parameters (e.g. lr=2e-5)')
 
 

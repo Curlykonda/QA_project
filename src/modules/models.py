@@ -84,6 +84,8 @@ class RobertaQA(nn.Module):
         super(RobertaQA, self).__init__()
 
         self.roberta_enc = RobertaModel.from_pretrained('roberta-base')
+        self.freeze_enc = freeze_enc
+        self.freeze_emb = freeze_emb
 
         # fix pre-trained Roberta parameters - only train QA-head & embeddings
         if freeze_enc:
