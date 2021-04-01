@@ -17,7 +17,7 @@ from collections import Counter
 from subprocess import run
 from tqdm import tqdm
 from zipfile import ZipFile
-from transformers import RobertaTokenizer, RobertaTokenizerFast
+from transformers import RobertaTokenizer, RobertaTokenizerFast, PreTrainedTokenizerFast
 
 from src.options import get_setup_args
 
@@ -126,7 +126,7 @@ def proc_raw_file(filename, data_type, debug=False):
 
                     example = {"context": context,
                                "question": ques,
-                               "ans_texts": answer_texts,
+                               "answers": answer_texts,
                                'start_chars': start_chars,
                                'end_chars': end_chars,
                                "id": total_qs}
@@ -134,9 +134,9 @@ def proc_raw_file(filename, data_type, debug=False):
 
                     eval_examples[str(total_qs)] = {"context": context,
                                                     "question": ques,
+                                                    "answers": answer_texts,
                                                     'start_chars': start_chars,
                                                     'end_chars': end_chars,
-                                                    "answers": answer_texts,
                                                     "uuid": qa["id"]}
         print(f"{len(examples)} questions in total")
 
@@ -317,7 +317,7 @@ def build_bert_features(args, examples, tokenizer, data_split: str, out_file: st
     :return:
     """
 
-    assert isinstance(tokenizer, RobertaTokenizerFast)
+    assert isinstance(tokenizer, PreTrainedTokenizerFast)
 
     max_len = args.max_seq_len
     valid_ex = 0
@@ -331,7 +331,6 @@ def build_bert_features(args, examples, tokenizer, data_split: str, out_file: st
     ids = []
     for n, example in tqdm(enumerate(examples)):
         total_ex += 1
-
         # jointly encode question-context pair with Transformer
         # pair of sequences: <s> A </s></s> B </s>
         # need to store Mask to avoid performing attention on padding token indices
@@ -378,11 +377,16 @@ def build_bert_features(args, examples, tokenizer, data_split: str, out_file: st
 
         # Detect if the answer is out of the span (in which case this feature is labeled with the CLS index).
         if (offsets[c_start_idx][0] <= start_char and offsets[c_end_idx][1] >= end_char):
-            # Move the token_start_index and token_end_index to the two ends of the answer.
+            # Move (char) start/end_position to start/end of the answer.
             # Note: we could go after the last offset if the answer is the last word (edge case).
-            while c_start_idx < len(offsets) and offsets[c_start_idx][0] <= start_char:
+            while c_start_idx < len(offsets) and offsets[c_start_idx][0] <= start_char \
+                    and offsets[c_start_idx][1] < end_char:
                 c_start_idx += 1
             start_position = c_start_idx - 1
+
+            # if start_position >= 380:
+            #     print(n)
+
             while offsets[c_end_idx][1] >= end_char:
                 c_end_idx -= 1
             end_position = c_end_idx + 1
@@ -398,18 +402,20 @@ def build_bert_features(args, examples, tokenizer, data_split: str, out_file: st
             continue
 
         valid_ex += 1
-
+        #
         if valid_ex % 2000 == 0 and args.debug:
             # validate with ground truth answer
-            print(tokenizer.decode(q_c_ids[start_position: end_position + 1]))
-            print(example['ans_texts'][0])
+            print(tokenizer.decode(q_c_ids[start_position:end_position+1]))
+            print(example['answers'][0])
 
         ques_cont_ids.append(q_c_ids)
         attention_masks.append(attn_mask)
-
         y1s.append(start_position)
         y2s.append(end_position)
         ids.append(example["id"])
+
+        if start_position > 380:
+            print(example["id"])
 
     print(f"Built {valid_ex} / {total_ex} instances of features in total")
     meta["total"] = valid_ex
@@ -524,6 +530,7 @@ def drop_example(args, q_len, c_len, ans_start, ans_end, is_test_=False):
 
 def is_answerable(ans_start, ans_end):
     #return len(example['y2s']) > 0 and len(example['y1s']) > 0
+    # and ans_start <= ans_end#and ans_start <= ans_end
     return ans_start > 0 and ans_end > 0
 
 
@@ -652,16 +659,14 @@ def pre_process(args):
     debug = args.debug
 
     if args.use_roberta_token:
-        train_examples, train_eval = proc_raw_file(args.train_file, "train", debug=debug)
-
-        #tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
+        # TODO: add function to get tokenizer (for other models)
         tokenizer = RobertaTokenizerFast.from_pretrained('roberta-base')
         word2idx = tokenizer.get_vocab()
-
-        build_bert_features(args, train_examples, tokenizer, "train", args.train_record_file)
-
-        save_as_json(args, args.train_eval_file, train_eval, message="train eval")
         save_as_json(args, args.word2idx_file, word2idx, message="word dictionary")
+
+        train_examples, train_eval = proc_raw_file(args.train_file, "train", debug=debug)
+        build_bert_features(args, train_examples, tokenizer, "train", args.train_record_file)
+        save_as_json(args, args.train_eval_file, train_eval, message="train eval")
 
         dev_examples, dev_eval = proc_raw_file(args.dev_file, "dev")
         dev_meta = build_bert_features(args, dev_examples, tokenizer, "dev", args.dev_record_file)
