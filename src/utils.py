@@ -12,6 +12,8 @@ import torch.nn.functional as F
 import tqdm
 import numpy as np
 
+from datetime import datetime
+
 
 from collections import Counter
 
@@ -250,7 +252,7 @@ def save_preds(preds, save_dir, file_name='predictions.csv'):
     return save_path
 
 
-def get_save_dir(base_dir: str, name: str, training: bool, id_max=100) -> str:
+def get_save_dir(base_dir: str, name: str, training: bool, use_date=True, id_max=100) -> str:
     """Get a unique save directory by appending the smallest positive integer
     `id < id_max` that is not already taken (i.e., no dir exists with that id).
     Args:
@@ -263,7 +265,13 @@ def get_save_dir(base_dir: str, name: str, training: bool, id_max=100) -> str:
     """
     for uid in range(1, id_max):
         subdir = 'train' if training else 'test'
-        save_dir = Path(base_dir).joinpath(subdir, f'{name}-{uid:02d}')
+        if use_date:
+            date = datetime.now().strftime("%d-%m-%Y")
+            dir_name = f'{name}-{date}--{uid:02d}'
+        else:
+            dir_name = f'{name}--{uid:02d}'
+        save_dir = Path(base_dir).joinpath(subdir, dir_name)
+
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
             return str(save_dir)
@@ -365,15 +373,15 @@ def discretize(p_start, p_end, max_len=15, no_answer=False):
         raise ValueError('Expected p_start and p_end to have values in [0, 1]')
 
     # Compute pairwise probabilities
-    p_start = p_start.unsqueeze(dim=2)
-    p_end = p_end.unsqueeze(dim=1)
+    p_start = p_start.unsqueeze(dim=2) # (bs x max_len x 1)
+    p_end = p_end.unsqueeze(dim=1) # (bs x 1 x max_len)
     p_joint = torch.matmul(p_start, p_end)  # (batch_size, c_len, c_len)
 
     # Restrict to pairs (i, j) such that i <= j <= i + max_len - 1
     c_len, device = p_start.size(1), p_start.device
     is_legal_pair = torch.triu(torch.ones((c_len, c_len), device=device))
-    is_legal_pair -= torch.triu(torch.ones((c_len, c_len), device=device),
-                                diagonal=max_len)
+    is_legal_pair -= torch.triu(torch.ones((c_len, c_len), device=device), diagonal=max_len)
+
     if no_answer:
         # Index 0 is no-answer
         p_no_answer = p_joint[:, 0, 0].clone()
@@ -381,6 +389,7 @@ def discretize(p_start, p_end, max_len=15, no_answer=False):
         is_legal_pair[:, 0] = 0
     else:
         p_no_answer = None
+
     p_joint *= is_legal_pair
 
     # Take pair (i, j) that maximizes p_joint
@@ -428,36 +437,41 @@ def convert_tokens(eval_dict, qa_id, y_start_list, y_end_list, no_answer):
             sub_dict[uuid] = context[start_idx: end_idx]
     return pred_dict, sub_dict
 
-def convert_bert_tokens(eval_dict, qa_id, y_start_list, y_end_list, no_answer):
-    """Convert predictions to tokens from the context.
+def convert_bert_tokens(tokenizer, q_c_ids, qa_id, y_start_list, y_end_list, no_answer):
+    """Convert predictions to tokens by decoding .
+
     Args:
-        eval_dict (dict): Dictionary with eval info for the dataset. This is
-            used to perform the mapping from IDs and indices to actual text.
+        tokenizer (PreTrainedTokenizerFast): Decode Wordpiece tokens into text
+        q_c_ids (list): List/Tensor of token IDs of question-context pair
         qa_id (int): List of QA example IDs.
         y_start_list (list): List of start predictions.
         y_end_list (list): List of end predictions.
         no_answer (bool): Questions can have no answer. E.g., SQuAD 2.0.
     Returns:
         pred_dict (dict): Dictionary index IDs -> predicted answer text.
-        sub_dict (dict): Dictionary UUIDs -> predicted answer text (submission).
+        #sub_dict (dict): Dictionary UUIDs -> predicted answer text (submission).
     """
+
     pred_dict = {}
-    sub_dict = {}
-    for qid, y_start, y_end in zip(qa_id, y_start_list, y_end_list):
-        context = eval_dict[str(qid)]["context"]
-        spans = eval_dict[str(qid)]["spans"]
-        uuid = eval_dict[str(qid)]["uuid"]
+    #sub_dict = {}
+    for qc_ids, qid, y_start, y_end in zip(q_c_ids, qa_id, y_start_list, y_end_list):
+
         if no_answer and (y_start == 0 or y_end == 0):
             pred_dict[str(qid)] = ''
-            sub_dict[uuid] = ''
+            #sub_dict[uuid] = ''
         else:
             if no_answer:
                 y_start, y_end = y_start - 1, y_end - 1
-            start_idx = spans[y_start][0]
-            end_idx = spans[y_end][1]
-            pred_dict[str(qid)] = context[start_idx: end_idx]
-            sub_dict[uuid] = context[start_idx: end_idx]
-    return pred_dict, sub_dict
+
+            # TODO: adjust answer spans according to Wordpiece tokenizer
+            # need: 'eval_dict' contains 'answer_text' (not just span)
+            # option 1: use BertTokenizer to decode tokenized context
+            # option 2: store offset mapping & use to reconstruct original answer span
+            pred_answer = tokenizer.decode(qc_ids[y_start:y_end+1])
+            pred_dict[str(qid)] = pred_answer
+            #sub_dict[uuid] = context[start_idx: end_idx]
+
+    return pred_dict
 
 
 def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
