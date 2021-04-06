@@ -17,9 +17,9 @@ from collections import Counter
 from subprocess import run
 from tqdm import tqdm
 from zipfile import ZipFile
-from transformers import RobertaTokenizer, RobertaTokenizerFast, PreTrainedTokenizerFast
+from transformers import RobertaTokenizerFast, PreTrainedTokenizerFast
 
-from src.options import get_setup_args
+import src.options
 
 
 def download_url(url, output_path, show_progress=True):
@@ -727,7 +727,7 @@ def pre_process(args):
 
 if __name__ == '__main__':
     # Get command-line args
-    args_ = get_setup_args()
+    args_ = src.options.get_preproc_args()
 
     # Download resources
     if args_.download:

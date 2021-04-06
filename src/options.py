@@ -2,9 +2,10 @@ import argparse
 
 from src.utils import get_data_root, get_project_root, get_project_root_path
 
+MODEL_NAMES = ['bidaf', 'roberta-qa']
 
-def get_setup_args():
-    """Get arguments needed in setup.py."""
+def get_preproc_args():
+    """Get arguments needed for pre-processing SQuAD """
     parser = argparse.ArgumentParser('Download and pre-process SQuAD')
 
     add_common_args(parser)
@@ -12,7 +13,7 @@ def get_setup_args():
     parser.add_argument('--download', type=int, default=0)
 
     # note: we used Squad v1.1
-    parser.add_argument('--train_url', type=str, default='https://github.com/chrischute/squad/data/train-v2.0.json')
+    parser.add_argument('--train_url', type=str, default='https://github.com/chrischute/squad/data/train-v2.0.json') # 'https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v1.1.json'
     parser.add_argument('--dev_url', type=str, default='https://github.com/chrischute/squad/data/dev-v2.0.json')
     parser.add_argument('--test_url', type=str, default='https://github.com/chrischute/squad/data/test-v2.0.json')
 
@@ -177,7 +178,7 @@ def add_train_test_args(parser):
                         default='roberta-qa',
                         help='Name to identify training or test run.')
 
-    parser.add_argument('--model_name', type=str, default='roberta-qa', choices=['bidaf', 'roberta-qa'])
+    parser.add_argument('--model_name', type=str, default='roberta-qa', choices=MODEL_NAMES)
     parser.add_argument('--optim', type=str, default='adam', choices=['adam', 'adadelta'])
 
     parser.add_argument('--max_ans_len',

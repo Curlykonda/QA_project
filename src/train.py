@@ -1,7 +1,5 @@
 from pathlib import Path
 
-import torch
-import torch.nn as nn
 import torch.utils.data as data
 import torch.optim as optim
 import torch.optim.lr_scheduler as sched
@@ -9,15 +7,13 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 import numpy as np
-import json
 from json import dumps
 import random
-from collections import OrderedDict
 
 from tqdm import tqdm
-from transformers import RobertaTokenizerFast, PreTrainedTokenizerFast
 
 import src.utils as utils
+from src.eval import eval_bert, eval_bidaf
 from src.options import *
 
 from src.modules.models import *
@@ -46,12 +42,29 @@ def train_bert(args):
 
     # get dataloader
     train_loader, dev_loader = get_dataloader(args, log)
+    dev_eval_file = utils.get_file_path(Path(args.data_root), args.dataset_name, args.dev_eval_file)
 
     # Training loop
-    log.info('Training...')
     step = 0
     steps_till_eval = args.eval_steps
     epoch = step // len(train_loader)
+
+    # evaluate at step 0
+    log.info(f'Evaluating at step {step}...')
+
+    results, pred_dict = eval_bert(model, dev_loader, device,
+                                   dev_eval_file,
+                                   args.max_ans_len,
+                                   args.use_squad_v2)
+
+    # Log to console
+    results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in results.items())
+    log.info(f'Dev {results_str}')
+
+    log_to_tbx(tbx, dev_eval_file, log, pred_dict, results, step, args.num_visuals)
+
+
+    log.info('Training...')
     while epoch != args.num_epochs:
         epoch += 1
         log.info(f'Starting epoch {epoch}...')
@@ -91,22 +104,20 @@ def train_bert(args):
                 progress_bar.set_postfix(epoch=epoch,
                                          CE=loss_val)
                 tbx.add_scalar('train/CE', loss_val, step)
-                tbx.add_scalar('train/LR',
-                               optimizer.param_groups[0]['lr'],
-                               step)
+                tbx.add_scalar('train/LR', optimizer.param_groups[0]['lr'], step)
 
                 steps_till_eval -= batch_size
                 if steps_till_eval <= 0:
+                    # log internal or first iteration
                     steps_till_eval = args.eval_steps
 
                     # Evaluate and save checkpoint
                     log.info(f'Evaluating at step {step}...')
                     ema.assign(model)
-                    dev_eval_file = utils.get_file_path(Path(args.data_root), args.dataset_name, args.dev_eval_file)
                     results, pred_dict = eval_bert(model, dev_loader, device,
-                                                    dev_eval_file,
-                                                    args.max_ans_len,
-                                                    args.use_squad_v2)
+                                                   dev_eval_file,
+                                                   args.max_ans_len,
+                                                   args.use_squad_v2)
 
                     saver.save(step, model, results[args.metric_name], device)
                     ema.resume(model)
@@ -115,16 +126,20 @@ def train_bert(args):
                     results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in results.items())
                     log.info(f'Dev {results_str}')
 
-                    # Log to TensorBoard
-                    log.info('Visualizing in TensorBoard...')
-                    for k, v in results.items():
-                        tbx.add_scalar(f'dev/{k}', v, step)
-                    utils.visualize(tbx,
-                                    pred_dict=pred_dict,
-                                    eval_path=dev_eval_file,
-                                    step=step,
-                                    split='dev',
-                                    num_visuals=args.num_visuals)
+                    log_to_tbx(tbx, dev_eval_file, log, pred_dict, results, step, args.num_visuals)
+
+
+def log_to_tbx(tbx: SummaryWriter, dev_eval_file, log, pred_dict, results: dict, step, n_visuals):
+    # Log to TensorBoard
+    log.info('Visualizing in TensorBoard...')
+    for k, v in results.items():
+        tbx.add_scalar(f'dev/{k}', v, step)
+    utils.visualize(tbx,
+                    pred_dict=pred_dict,
+                    eval_path=dev_eval_file,
+                    step=step,
+                    split='dev',
+                    num_visuals=n_visuals)
 
 
 def get_dataloader(args, log):
@@ -217,73 +232,6 @@ def setup_train(args):
                                  log=log)
 
     return device, log, tbx, saver
-
-def eval_bert(model, data_loader, device, eval_file, max_len, use_squad_v2):
-    ce_meter = utils.AverageMeter()
-
-    # get tokenizer to decode (pred) indices of Wordpiece tokens
-    tokenizer = RobertaTokenizerFast.from_pretrained('roberta-base')
-
-    assert isinstance(tokenizer, PreTrainedTokenizerFast)
-
-    model.eval()
-    pred_dict = {}
-    with open(eval_file, 'r') as fh:
-        gold_dict = json.load(fh)
-    with torch.no_grad(), \
-            tqdm(total=len(data_loader.dataset)) as progress_bar:
-        for q_c_ids, attn_mask, y1, y2, ids in data_loader:
-            # Setup for forward
-            q_c_ids = q_c_ids.to(device)
-            attn_mask = attn_mask.to(device)
-
-            batch_size = q_c_ids.size(0)
-
-            # Forward
-            start_logits, end_logits = model(q_c_ids, attn_mask)
-            y1, y2 = y1.to(device), y2.to(device)
-            # ignore indices outside of model input
-            ignored_index = start_logits.size(1)
-            y1.clamp_(0, ignored_index)
-            y2.clamp_(0, ignored_index)
-
-            loss_fnc = nn.CrossEntropyLoss(ignore_index=ignored_index)
-            loss = loss_fnc(start_logits, y1) + loss_fnc(end_logits, y2)
-            ce_meter.update(loss.item(), batch_size)
-
-            # Get F1 and EM scores
-            softmax_fnc = nn.Softmax(dim=1)
-            p1, p2 = softmax_fnc(start_logits), softmax_fnc(end_logits)
-            starts, ends = utils.discretize(p1, p2, max_len, use_squad_v2) # get start-end pair with max joint probability
-
-            # Log info
-            progress_bar.update(batch_size)
-            progress_bar.set_postfix(CE=ce_meter.avg)
-
-            # map predicted start-end indices to tokens (from context)
-            preds = utils.convert_bert_tokens(tokenizer,
-                                                 q_c_ids.tolist(),
-                                                 ids.tolist(),
-                                                 starts.tolist(),
-                                                 ends.tolist(),
-                                                 use_squad_v2)
-            pred_dict.update(preds)
-            #
-            # if len(pred_dict) > 100:
-            #     break
-
-    model.train()
-
-    results = utils.eval_dicts(gold_dict, pred_dict, use_squad_v2)
-    results_list = [('CE', ce_meter.avg),
-                    ('F1', results['F1']),
-                    ('EM', results['EM'])]
-    if use_squad_v2:
-        results_list.append(('AvNA', results['AvNA']))
-    results = OrderedDict(results_list)
-
-    return results, pred_dict
-
 
 def train_bidaf(args):
     device, log, tbx, saver = setup_train(args)
@@ -391,58 +339,10 @@ def train_bidaf(args):
                                    split='dev',
                                    num_visuals=args.num_visuals)
 
-def eval_bidaf(model, data_loader, device, eval_file, max_len, use_squad_v2):
-    nll_meter = utils.AverageMeter()
 
-    model.eval()
-    pred_dict = {}
-    with open(eval_file, 'r') as fh:
-        gold_dict = json.load(fh)
-    with torch.no_grad(), \
-            tqdm(total=len(data_loader.dataset)) as progress_bar:
-        for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, ids in data_loader:
-            # Setup for forward
-            cw_idxs = cw_idxs.to(device)
-            qw_idxs = qw_idxs.to(device)
-            batch_size = cw_idxs.size(0)
-
-            # Forward
-            log_p1, log_p2 = model(cw_idxs, qw_idxs)
-            y1, y2 = y1.to(device), y2.to(device)
-            loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
-            nll_meter.update(loss.item(), batch_size)
-
-            # Get F1 and EM scores
-            p1, p2 = log_p1.exp(), log_p2.exp()
-            starts, ends = utils.discretize(p1, p2, max_len, use_squad_v2)
-
-            # Log info
-            progress_bar.update(batch_size)
-            progress_bar.set_postfix(NLL=nll_meter.avg)
-
-            preds, _ = utils.convert_tokens(gold_dict,
-                                                 ids.tolist(),
-                                                 starts.tolist(),
-                                                 ends.tolist(),
-                                                 use_squad_v2)
-            pred_dict.update(preds)
-
-    model.train()
-
-    results = utils.eval_dicts(gold_dict, pred_dict, use_squad_v2)
-    results_list = [('NLL', nll_meter.avg),
-                    ('F1', results['F1']),
-                    ('EM', results['EM'])]
-    if use_squad_v2:
-        results_list.append(('AvNA', results['AvNA']))
-    results = OrderedDict(results_list)
-
-    return results, pred_dict
-
-
-if __name__ == '__main__':
-    #train_bidaf(get_train_args())
-    train_bert(get_train_args())
+# if __name__ == '__main__':
+#     #train_bidaf(get_train_args())
+#     train_bert(get_train_args())
 
 
 # cw_idxs : context word indices (?)
