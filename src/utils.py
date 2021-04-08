@@ -331,6 +331,8 @@ def get_logger(log_dir: str, name):
 
     return logger
 
+def count_model_params(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 def torch_from_json(path, dtype=torch.float32):
     """Load a PyTorch Tensor from a JSON file.

@@ -54,8 +54,8 @@ class BiDAF_Embedding(nn.Module):
         else:
             raise ValueError("Need to provide embedding matrix")
 
-        self.proj = nn.Linear(self.d_word_emb + self.d_char_emb, self.d_hidden_eff, bias=False)
-        self.hwy = HighwayEncoder(n_layers=n_layers, d_hidden=self.d_hidden_eff)
+        self.proj = nn.Linear(self.d_word_emb + self.d_char_emb, self.d_hidden, bias=False)
+        self.hwy = HighwayEncoder(n_layers=n_layers, d_hidden=self.d_hidden)
 
     def forward(self, x_w, x_c=None):
         """ x contain sequences encoded as word indices """

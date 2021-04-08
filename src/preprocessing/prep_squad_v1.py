@@ -657,7 +657,6 @@ def save_as_json(args, filename, obj, message=None):
 def build_data_path(args, file_name) -> Path:
     return Path(args.data_root).joinpath(args.dataset_name, file_name)
 
-
 def pre_process(args):
     setup_pre_process(args)
 
@@ -744,7 +743,7 @@ def pre_process(args):
 
     prep_records['args'] = {json.dumps(vars(args), indent=2, sort_keys=True)}
 
-    f_name = prep_records['name'] + '_records'
+    f_name = prep_records['name'] + '_records.json'
     print(save_as_json(args, f_name, prep_records, message='prep records'))
 
 def setup_pre_process(args_):
@@ -762,7 +761,7 @@ def setup_pre_process(args_):
     if args_.use_pt_we:
         glove_dir = url_to_data_path(args_.data_root, args_.glove_url.replace('.zip', ''))
         glove_ext = f'.txt' if str(glove_dir).endswith('d') else f'.{args_.glove_dim}d.txt'
-        args_.we_file = glove_dir.joinpath(os.path.basename(glove_dir) + glove_ext)
+        args_.we_file = str(glove_dir.joinpath(os.path.basename(glove_dir) + glove_ext))
     else:
         args_.we_file = None
 

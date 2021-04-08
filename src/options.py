@@ -145,7 +145,7 @@ def get_common_args():
     """Add arguments common to all 3 scripts: setup.py, train.py, test.py"""
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--mode', type=str, default='preproc', choices=['preproc', 'train', 'test'])
+    parser.add_argument('--mode', type=str, default='train', choices=['preproc', 'train', 'test'])
 
     parser.add_argument('--project_root', type=str, default=get_project_root())
     parser.add_argument('--data_root', type=str, default=get_data_root())
@@ -179,10 +179,11 @@ def add_train_test_args(parser):
                         '-n',
                         type=str,
                         #required=True,
-                        default='roberta-qa',
+                        default='bidaf',
                         help='Name to identify training or test run.')
+                        # roberta-qa
 
-    parser.add_argument('--model_name', type=str, default='roberta-qa', choices=MODEL_NAMES)
+    parser.add_argument('--model_name', type=str, default='bidaf', choices=MODEL_NAMES)
     parser.add_argument('--optim', type=str, default='adam', choices=['adam', 'adadelta'])
 
     parser.add_argument('--max_ans_len',

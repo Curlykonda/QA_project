@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import torch.utils.data as data
@@ -37,9 +38,10 @@ def train_bert(args):
     model = RobertaQA()
     model = model.to(device)
     model.train()
+    log.info(f'Trainable params: {utils.count_model_params(model)}')
 
     optimizer, scheduler, ema = get_optim_schedule(args, model)
-
+    #criterion = nn.CrossEntropyLoss()
     # get dataloader
     train_loader, dev_loader = get_dataloader(args, log)
     dev_eval_file = utils.get_file_path(Path(args.data_root), args.dataset_name, args.dev_eval_file)
@@ -87,8 +89,8 @@ def train_bert(args):
                 y1.clamp_(0, ignored_index)
                 y2.clamp_(0, ignored_index)
 
-                loss_fnc = nn.CrossEntropyLoss(ignore_index=ignored_index)
-                loss = loss_fnc(start_logits, y1) + loss_fnc(end_logits, y2)
+                criterion = nn.CrossEntropyLoss(ignore_index=ignored_index)
+                loss = criterion(start_logits, y1) + criterion(end_logits, y2)
                 loss_val = loss.item()
 
                 # Backward
@@ -239,7 +241,7 @@ def train_bidaf(args):
     # Get embeddings
     log.info('Loading embeddings...')
 
-    word_vectors = utils.torch_from_json(args.data_root.joinpath(args.dataset_name, args.word_emb_file))
+    word_vectors = utils.torch_from_json(os.path.join(args.data_root, args.dataset_name, args.word_emb_file))
     #char_vectors = utils.torch_from_json()
 
     # Get model
@@ -253,7 +255,7 @@ def train_bidaf(args):
     else:
         raise ValueError()
 
-
+    log.info(f'Trainable params: {utils.count_model_params(model)}')
     #model = nn.DataParallel(model, args.gpu_ids)
 
     # load checkpoint
@@ -267,7 +269,7 @@ def train_bidaf(args):
     model = model.to(device)
     model.train()
     optimizer, scheduler, ema = get_optim_schedule(args, model)
-
+    criterion = nn.NLLLoss()
     # Prep Dataloader
     train_loader, dev_loader = get_dataloader(args, log)
 
@@ -290,7 +292,7 @@ def train_bidaf(args):
                 # Forward
                 log_p1, log_p2 = model(cw_idxs, qw_idxs)
                 y1, y2 = y1.to(device), y2.to(device)
-                loss = F.nll_loss(log_p1, y1) + F.nll_loss(log_p2, y2)
+                loss = criterion(log_p1, y1) + criterion(log_p2, y2)
                 loss_val = loss.item()
 
                 # Backward
