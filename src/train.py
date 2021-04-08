@@ -240,14 +240,15 @@ def train_bidaf(args):
     log.info('Loading embeddings...')
 
     word_vectors = utils.torch_from_json(args.data_root.joinpath(args.dataset_name, args.word_emb_file))
+    #char_vectors = utils.torch_from_json()
 
     # Get model
     log.info('Building model...')
 
     # select model
     if "bidaf" == args.model_name.lower():
-        model = BiDAF(word_vectors=word_vectors,
-                      d_hidden=args.d_hidden,
+        model = BiDAF(args, word_vectors=word_vectors,
+                      char_vectors=None,
                       p_drop=args.drop_prob)
     else:
         raise ValueError()
@@ -338,16 +339,3 @@ def train_bidaf(args):
                                    step=step,
                                    split='dev',
                                    num_visuals=args.num_visuals)
-
-
-# if __name__ == '__main__':
-#     #train_bidaf(get_train_args())
-#     train_bert(get_train_args())
-
-
-# cw_idxs : context word indices (?)
-# cc_idxs : context chars
-# qw_idxs : question word indices
-# qc_idxs : question chars
-# y1 : answer start (?)
-# y2 : answer span (?)

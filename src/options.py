@@ -4,11 +4,12 @@ from src.utils import get_data_root, get_project_root, get_project_root_path
 
 MODEL_NAMES = ['bidaf', 'roberta-qa']
 
-def get_preproc_args():
+def add_preproc_args(parser):
     """Get arguments needed for pre-processing SQuAD """
-    parser = argparse.ArgumentParser('Download and pre-process SQuAD')
-
-    add_common_args(parser)
+    #parser = argparse.ArgumentParser('Download and pre-process SQuAD')
+    if parser is None:
+        parser = get_common_args()
+    #add_common_args(parser)
 
     parser.add_argument('--download', type=int, default=0)
 
@@ -19,10 +20,8 @@ def get_preproc_args():
 
     parser.add_argument('--train_file', type=str, default='train-v1.1.json')
     parser.add_argument('--dev_file', type=str, default='dev-v1.1.json')
-    #parser.add_argument('--test_url', type=str, default='https://github.com/chrischute/squad/data/test-v2.0.json')
 
     parser.add_argument('--glove_url', type=str, default='http://nlp.stanford.edu/data/glove.840B.300d.zip')
-
     parser.add_argument('--tokenizer', type=str, default='spacy', choices=['spacy', 'roberta'])
 
     parser.add_argument('--dev_meta_file', type=str, default='dev_meta.json')
@@ -32,7 +31,7 @@ def get_preproc_args():
     parser.add_argument('--answer_file', type=str, default='answer.json')
 
     parser.add_argument('--vocab_size', type=int, default=30000, help='Max number of word in vocabulary')
-    parser.add_argument('--max_seq_len', type=int, default=384, help='Max number of words in question + context')
+    parser.add_argument('--max_seq_len', type=int, default=400, help='Max number of words in question + context')
     parser.add_argument('--context_limit', type=int, default=400, help='Max number of words in a context')
     parser.add_argument('--ques_limit', type=int, default=50, help='Max number of words to keep from a question')
     parser.add_argument('--ans_limit', type=int, default=30, help='Max number of words in a training example answer')
@@ -67,11 +66,11 @@ def get_preproc_args():
     return args
 
 
-def get_train_args():
+def add_train_args(parser):
     """Get arguments needed in train.py."""
-    parser = argparse.ArgumentParser('Train a model on SQuAD')
+    #parser = argparse.ArgumentParser('Train a model on SQuAD')
 
-    add_common_args(parser)
+    #add_common_args(parser)
     add_train_test_args(parser)
 
     parser.add_argument('--eval_steps',
@@ -117,11 +116,11 @@ def get_train_args():
     return args
 
 
-def get_test_args():
+def add_test_args(parser):
     """Get arguments needed in test.py."""
-    parser = argparse.ArgumentParser('Test a trained model on SQuAD')
+    #parser = argparse.ArgumentParser('Test a trained model on SQuAD')
 
-    add_common_args(parser)
+    #add_common_args(parser)
     add_train_test_args(parser)
 
     parser.add_argument('--split',
@@ -142,8 +141,11 @@ def get_test_args():
     return args
 
 
-def add_common_args(parser):
+def get_common_args():
     """Add arguments common to all 3 scripts: setup.py, train.py, test.py"""
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--mode', type=str, default='preproc', choices=['preproc', 'train', 'test'])
 
     parser.add_argument('--project_root', type=str, default=get_project_root())
     parser.add_argument('--data_root', type=str, default=get_data_root())
@@ -154,9 +156,9 @@ def add_common_args(parser):
     parser.add_argument('--test_record_file', type=str, default='test.npz')
 
     parser.add_argument('--use_pt_we', type=bool, default=True, help="Use pre-trained word embeddings")
-    parser.add_argument('--use_roberta_token', type=bool, default=True, help="Use RobertaTokenizer to map words to indices")
-    parser.add_argument('--word_emb_file', type=str, default=None, choices=['glove_word_emb.json', None])
-    #parser.add_argument('--char_emb_file', type=str, default='char_emb.json')
+    parser.add_argument('--use_roberta_token', type=bool, default=False, help="Use RobertaTokenizer to map words to indices")
+    parser.add_argument('--word_emb_file', type=str, default='glove_word_emb.json', help='file name where to save relevant word embeddings')
+    parser.add_argument('--char_emb_file', type=str, default='char_emb.json')
 
     parser.add_argument('--train_eval_file', type=str, default='train_eval.json')
     parser.add_argument('--dev_eval_file', type=str, default='dev_eval.json')
@@ -167,6 +169,8 @@ def add_common_args(parser):
                         default=False,
                         help='Whether to use SQuAD 2.0 (unanswerable) questions.')
     parser.add_argument('--debug', type=bool, default=False)
+
+    return parser
 
 
 def add_train_test_args(parser):
@@ -207,6 +211,9 @@ def add_train_test_args(parser):
     parser.add_argument('--freeze_bert_encoder', type=bool, default=True, help='Freeze layers of *BERT encoder')
     parser.add_argument('--freeze_we_embs', type=bool, default=False, help='Freeze word embeddings')
     parser.add_argument('--set_finetune_def', type=bool, default=True, help='Activate default finetuning parameters (e.g. lr=2e-5)')
+
+    parser.add_argument('--char_n_filters', type=int, default=100)
+    parser.add_argument('--char_kernel_size', type=int, default=5)
 
 
 def set_default_finetune_args(args_):

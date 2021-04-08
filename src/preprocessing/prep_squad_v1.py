@@ -21,6 +21,9 @@ from transformers import RobertaTokenizerFast, PreTrainedTokenizerFast
 
 import src.options
 
+# Import spacy language model
+NLP = spacy.blank("en")
+
 
 def download_url(url, output_path, show_progress=True):
     class DownloadProgressBar(tqdm):
@@ -69,7 +72,7 @@ def download(args):
 
 
 def clean_tokens(sent, tokenize=False):
-    doc = nlp(sent)
+    doc = NLP(sent)
     if tokenize:
         return [token.text for token in doc]
     else:
@@ -104,7 +107,7 @@ def proc_raw_file(filename, data_type, debug=False):
                 # context
                 context = clean_tokens(para["context"].replace("''", '" ').replace("``", '" ')).strip()
 
-                #spans = convert_idx(context) # What is this used for later?
+                # spans = convert_idx(context) # What is this used for later?
 
                 # questions
                 for qa in para["qas"]:
@@ -121,7 +124,7 @@ def proc_raw_file(filename, data_type, debug=False):
 
                         answer_texts.append(answer_text)
 
-                        start_chars.append(answer_start) # start position of char of answer text in context
+                        start_chars.append(answer_start)  # start position of char of answer text in context
                         end_chars.append(answer_end)
 
                     example = {"context": context,
@@ -141,6 +144,7 @@ def proc_raw_file(filename, data_type, debug=False):
         print(f"{len(examples)} questions in total")
 
     return examples, eval_examples
+
 
 def proc_file_with_counter(filename, data_type, word_counter, char_counter, tokenize=True, debug=False):
     """
@@ -178,7 +182,7 @@ def proc_file_with_counter(filename, data_type, word_counter, char_counter, toke
                 spans = convert_idx(context)
 
                 if tokenize:
-                    context_tokens = clean_tokens(context)
+                    context_tokens = clean_tokens(context, tokenize=tokenize)
                     context_chars = [list(token) for token in context_tokens]
                     for token in context_tokens:
                         word_counter[token] += len(
@@ -193,7 +197,7 @@ def proc_file_with_counter(filename, data_type, word_counter, char_counter, toke
                         "''", '" ').replace("``", '" ')
 
                     if tokenize:
-                        ques_tokens = clean_tokens(ques)
+                        ques_tokens = clean_tokens(ques, tokenize=tokenize)
                         ques_chars = [list(token) for token in ques_tokens]
                         for token in ques_tokens:
                             word_counter[token] += 1
@@ -226,6 +230,8 @@ def proc_file_with_counter(filename, data_type, word_counter, char_counter, toke
                                    "ques_tokens": ques_tokens,
                                    "ques_chars": ques_chars,
                                    "ans_texts": answer_texts,
+                                   'start_chars': start_chars,
+                                   'end_chars': end_chars,
                                    "y1s": y1s,
                                    "y2s": y2s,
                                    "id": total_qs}
@@ -240,12 +246,14 @@ def proc_file_with_counter(filename, data_type, word_counter, char_counter, toke
                                    "y1s": y1s,
                                    "y2s": y2s,
                                    "id": total_qs}
-                    examples.append(example)
 
+                    examples.append(example)
                     eval_examples[str(total_qs)] = {"context": context,
                                                     "question": ques,
                                                     "spans": spans,
                                                     "answers": answer_texts,
+                                                    'start_chars': start_chars,
+                                                    'end_chars': end_chars,
                                                     "uuid": qa["id"]}
         print(f"{len(examples)} questions in total")
 
@@ -292,8 +300,8 @@ def get_embedding(counter, data_type, min_freq=-1, vocab_size=30000, emb_file=No
             embedding_dict[token] = list(np.random.normal(scale=normal_scale, size=vec_size))
         print(f"{len(filt_tokens)} tokens have corresponding {data_type} embedding vector")
 
-    NULL = "--NULL--"  # is this '<pad>' token??
-    OOV = "--OOV--"  # replace with '<unk>' to match BERT terminology
+    NULL = "<PAD>"
+    OOV = "<UNK>"
     token2idx_dict = {token: idx for idx, token in
                       enumerate(embedding_dict.keys(), 2)}  # start at 2 to reserve pos 0 and 1 for special tokens
     token2idx_dict[NULL] = 0
@@ -322,7 +330,7 @@ def build_bert_features(args, examples, tokenizer, data_split: str, out_file: st
     max_len = args.max_seq_len
     valid_ex = 0
     total_ex = 0
-    meta = {}
+
     ques_cont_ids = []
     attention_masks = []
 
@@ -339,11 +347,11 @@ def build_bert_features(args, examples, tokenizer, data_split: str, out_file: st
 
         # Note: implicit right-side padding
         example_tokenized = tokenizer(question, context,
-                                        max_length=max_len,
-                                        padding='max_length',
-                                        truncation="only_second",
-                                        return_overflowing_tokens=True,
-                                        return_offsets_mapping=True)
+                                      max_length=max_len,
+                                      padding='max_length',
+                                      truncation="only_second",
+                                      return_overflowing_tokens=True,
+                                      return_offsets_mapping=True)
         # except Exception as e:
         #     print(n)
         #     print(e)
@@ -364,11 +372,11 @@ def build_bert_features(args, examples, tokenizer, data_split: str, out_file: st
 
         # distinguish which parts belong to question and which to context
         # context tokens have sequence id = 1
-        c_start_idx = 0 # start token index
+        c_start_idx = 0  # start token index
         while sequence_ids[c_start_idx] != 1:
             c_start_idx += 1
 
-        c_end_idx = len(q_c_ids) - 1 # end token index
+        c_end_idx = len(q_c_ids) - 1  # end token index
         while sequence_ids[c_end_idx] != 1:
             c_end_idx -= 1
 
@@ -390,10 +398,10 @@ def build_bert_features(args, examples, tokenizer, data_split: str, out_file: st
             while offsets[c_end_idx][1] >= end_char:
                 c_end_idx -= 1
             end_position = c_end_idx + 1
-            #print(start_position, end_position)
+            # print(start_position, end_position)
         else:
             start_position, end_position = cls_index, cls_index
-            #print("The answer is not in this feature.")
+            # print("The answer is not in this feature.")
 
         answer_token_span = end_position - start_position
 
@@ -405,7 +413,7 @@ def build_bert_features(args, examples, tokenizer, data_split: str, out_file: st
         #
         if valid_ex % 2000 == 0 and args.debug:
             # validate with ground truth answer
-            print(tokenizer.decode(q_c_ids[start_position:end_position+1]))
+            print(tokenizer.decode(q_c_ids[start_position:end_position + 1]))
             print(example['answers'][0])
 
         ques_cont_ids.append(q_c_ids)
@@ -418,18 +426,18 @@ def build_bert_features(args, examples, tokenizer, data_split: str, out_file: st
             print(example["id"])
 
     print(f"Built {valid_ex} / {total_ex} instances of features in total")
-    meta["total"] = valid_ex
 
     # save as numpy array
     # TODO: change to 'q_c_idxs' and adapt key usage elsewhere
-    np.savez(build_data_path(args, 'roberta_' + out_file),
+    f_name = build_data_path(args, 'roberta_' + out_file)
+    np.savez(f_name,
              c_q_idxs=np.array(ques_cont_ids),
              attn_mask=np.array(attention_masks),
              y1s=np.array(y1s),
              y2s=np.array(y2s),
              ids=np.array(ids))
 
-    return meta
+    return f_name
 
 
 # currently not in use
@@ -494,15 +502,6 @@ def build_bert_features(args, examples, tokenizer, data_split: str, out_file: st
 #
 #     return context_idxs, context_char_idxs, ques_idxs, ques_char_idxs
 
-def find_sub_list_indices(sub_list, org_list):
-    results = []
-
-    for ind in (i for i, e in enumerate(org_list) if e==sub_list[0]):
-        if org_list[ind:ind+len(sub_list)] == sub_list:
-            results.append((ind, ind+len(sub_list)-1))
-
-    return results
-
 def drop_example(args, q_len, c_len, ans_start, ans_end, is_test_=False):
     '''
     Filter out examples that exceed certain token limits or are not answerable
@@ -529,7 +528,7 @@ def drop_example(args, q_len, c_len, ans_start, ans_end, is_test_=False):
 
 
 def is_answerable(ans_start, ans_end):
-    #return len(example['y2s']) > 0 and len(example['y1s']) > 0
+    # return len(example['y2s']) > 0 and len(example['y1s']) > 0
     # and ans_start <= ans_end#and ans_start <= ans_end
     return ans_start > 0 and ans_end > 0
 
@@ -549,15 +548,15 @@ def build_features(args, examples, data_split: str, out_file, word2idx_dict, cha
     :return:
     """
     max_len = args.max_seq_len
-    para_limit = args.test_para_limit if is_test else args.para_limit
+    context_limit = args.test_context_limit if is_test else args.context_limit
     ques_limit = args.test_ques_limit if is_test else args.ques_limit
     ans_limit = args.ans_limit
     char_limit = args.char_limit
 
     print(f"Converting {data_split} examples to indices...")
+    valid = 0
     total = 0
-    total_ = 0
-    meta = {}
+
     context_idxs = []
     context_char_idxs = []
     ques_idxs = []
@@ -566,12 +565,21 @@ def build_features(args, examples, data_split: str, out_file, word2idx_dict, cha
     y2s = []
     ids = []
     for n, example in tqdm(enumerate(examples)):
-        total_ += 1
+        total += 1
 
-        if drop_example(example, para_limit, ques_limit, ans_limit, is_test):
+        start, end = example["y1s"][-1], example["y2s"][-1]
+        if not is_answerable(start, end):
+            start, end = -1, -1
+
+        # args, q_len, c_len, ans_start, ans_end, is_test_=False
+        q_len = len(example['ques_tokens'])
+        if drop_example(args,
+                        q_len=len(example['ques_tokens']),
+                        c_len=len(example["context_tokens"]),
+                        ans_start=start, ans_end=end, is_test_=is_test):
             continue
 
-        total += 1
+        valid += 1
 
         def _get_word(word):
             """
@@ -589,8 +597,8 @@ def build_features(args, examples, data_split: str, out_file, word2idx_dict, cha
             return 1
 
         # initialise word sequence with '0' and replace each position with a valid word index from the vocabulary
-        context_idx = np.zeros([para_limit], dtype=np.int32)
-        context_char_idx = np.zeros([para_limit, char_limit], dtype=np.int32)
+        context_idx = np.zeros([context_limit], dtype=np.int32)
+        context_char_idx = np.zeros([context_limit, char_limit], dtype=np.int32)
         ques_idx = np.zeros([ques_limit], dtype=np.int32)
         ques_char_idx = np.zeros([ques_limit, char_limit], dtype=np.int32)
 
@@ -616,19 +624,15 @@ def build_features(args, examples, data_split: str, out_file, word2idx_dict, cha
                 ques_char_idx[i, j] = _get_char(char)
         ques_char_idxs.append(ques_char_idx)
 
-        if is_answerable(example):
-            start, end = example["y1s"][-1], example["y2s"][-1]
-        else:
-            start, end = -1, -1
-
         y1s.append(start)
         y2s.append(end)
         ids.append(example["id"])
 
-    # out_file = args.data_root.joinpath(args.dataset_name, out_file) # build modular path for output file
+    print(f"Built {valid} / {total} instances of features in total")
 
     # save as numpy array
-    np.savez(build_data_path(args, out_file),
+    f_name = build_data_path(args, out_file)
+    np.savez(f_name,
              context_idxs=np.array(context_idxs),
              context_char_idxs=np.array(context_char_idxs),
              ques_idxs=np.array(ques_idxs),
@@ -637,17 +641,17 @@ def build_features(args, examples, data_split: str, out_file, word2idx_dict, cha
              y2s=np.array(y2s),
              ids=np.array(ids))
 
-    print(f"Built {total} / {total_} instances of features in total")
-    meta["total"] = total
-    return meta
+    return f_name
 
 
 def save_as_json(args, filename, obj, message=None):
     f_name = build_data_path(args, filename)
     if message is not None:
         print(f"Saving {message}...")
-        with open(f_name, "w") as fh:
-            json.dump(obj, fh)
+    with open(f_name, "w") as fh:
+        json.dump(obj, fh)
+
+    return f_name
 
 
 def build_data_path(args, file_name) -> Path:
@@ -655,53 +659,69 @@ def build_data_path(args, file_name) -> Path:
 
 
 def pre_process(args):
+    setup_pre_process(args)
+
     # Process training set and use it to decide on the word/character vocabularies
     debug = args.debug
+    prep_records = {'name': None, 'prefix': None}  # record which specific files are generated and shall be used after preprocessing
 
     if args.use_roberta_token:
         # TODO: add function to get tokenizer (for other models)
+
+        prep_records['name'] = 'roberta01'
+        prefix = 'roberta_'
+        prep_records['prefix'] = prefix
         tokenizer = RobertaTokenizerFast.from_pretrained('roberta-base')
         word2idx = tokenizer.get_vocab()
-        save_as_json(args, args.word2idx_file, word2idx, message="word dictionary")
+        prep_records['word_dict'] = save_as_json(args, prefix + args.word2idx_file, word2idx, message="word dictionary")
 
         train_examples, train_eval = proc_raw_file(args.train_file, "train", debug=debug)
-        build_bert_features(args, train_examples, tokenizer, "train", args.train_record_file)
-        save_as_json(args, args.train_eval_file, train_eval, message="train eval")
+        prep_records['train_npz'] = build_bert_features(args, train_examples, tokenizer, "train",
+                                                        args.train_record_file)
+
+        prep_records['train_eval'] = save_as_json(args, prefix + args.train_eval_file, train_eval, message="train eval")
 
         dev_examples, dev_eval = proc_raw_file(args.dev_file, "dev")
-        dev_meta = build_bert_features(args, dev_examples, tokenizer, "dev", args.dev_record_file)
+        prep_records['dev_npz'] = build_bert_features(args, dev_examples, tokenizer, "dev", args.dev_record_file)
 
-        save_as_json(args, args.dev_eval_file, dev_eval, message="dev eval")
-        save_as_json(args, args.dev_meta_file, dev_meta, message="dev meta")
+        prep_records['dev_eval'] = save_as_json(args, prefix + args.dev_eval_file, dev_eval, message="dev eval")
 
         if args.include_test_examples:
             # Process test set
             test_examples, test_eval = proc_raw_file(args.test_file, "test")
-            test_meta = build_bert_features(args, test_examples, tokenizer, "test",
-                                            args.test_record_file, is_test=True)
-
-            save_as_json(args, args.test_meta_file, test_meta, message="test meta")
+            prep_records['test_npz'] = build_bert_features(args, test_examples, tokenizer, "test",
+                                                           args.test_record_file, is_test=True)
 
     else:
+        # TODO: add prefix to dynamically indicate Wordembedding type and char emb
+
+        prep_records['name'] = 'bidaf01'
         word_counter, char_counter = Counter(), Counter()
-        train_examples, train_eval = proc_file_with_counter(args.train_file, "train", word_counter, char_counter, debug=debug)
+        train_examples, train_eval = proc_file_with_counter(args.train_file, "train", word_counter, char_counter,
+                                                            debug=debug)
 
         # build embeddings and features from hand-crafted vocabulary
-        word_emb_mat, word2idx = get_embedding(
-            word_counter, 'word', emb_file=args.we_file, vec_size=args.glove_dim,
-            num_vectors=args.glove_num_vecs, vocab_size=args.vocab_size)
-        char_emb_mat, char2idx = get_embedding(
-            char_counter, 'char', emb_file=None, vec_size=args.char_dim)
+        if debug and os.path.exists(build_data_path(args, args.word2idx_file)):
+            with open(build_data_path(args, args.word2idx_file), 'r') as f_in:
+                word2idx = json.load(f_in)
+        else:
+            word_emb_mat, word2idx = get_embedding(
+                word_counter, 'word', emb_file=args.we_file, vec_size=args.glove_dim,
+                num_vectors=args.glove_num_vecs, vocab_size=args.vocab_size)
+            prep_records['word_dict'] = save_as_json(args, args.word2idx_file, word2idx, message="word dictionary")
+            prep_records['word_emb'] = save_as_json(args, args.word_emb_file, word_emb_mat, message="word embedding")
 
-        save_as_json(args, args.word_emb_file, word_emb_mat, message="word embedding")
-        save_as_json(args, args.char_emb_file, char_emb_mat, message="char embedding")
+        if debug and os.path.exists(build_data_path(args, args.char2idx_file)):
+            with open(build_data_path(args, args.char2idx_file), 'r') as f_in:
+                char2idx = json.load(f_in)
+        else:
+            char_emb_mat, char2idx = get_embedding(
+                char_counter, 'char', emb_file=None, vec_size=args.char_dim)
+            prep_records['char_dict'] = save_as_json(args, args.char2idx_file, char2idx, message="char dictionary")
+            prep_records['char_emb'] = save_as_json(args, args.char_emb_file, char_emb_mat, message="char embedding")
 
-        save_as_json(args, args.char2idx_file, char2idx, message="char dictionary")
-
-        build_features(args, train_examples, "train", args.train_record_file, word2idx, char2idx)
-
-        save_as_json(args, args.train_eval_file, train_eval, message="train eval")
-        save_as_json(args, args.word2idx_file, word2idx, message="word dictionary")
+        prep_records['train_npz'] = build_features(args, train_examples, "train", args.train_record_file, word2idx, char2idx)
+        prep_records['train_eval'] = save_as_json(args, args.train_eval_file, train_eval, message="train eval")
 
         # Process dev and test sets
         #
@@ -712,23 +732,22 @@ def pre_process(args):
             # Process test set
             test_examples, test_eval = proc_file_with_counter(args.test_file, "test", word_counter, char_counter,
                                                               tokenize=not args.use_roberta_token)
-            save_as_json(args, args.test_eval_file, test_eval, message="test eval")
+            prep_records['test_eval'] = save_as_json(args, args.test_eval_file, test_eval, message="test eval")
 
-        dev_meta = build_features(args, dev_examples, "dev", args.dev_record_file, word2idx, char2idx)
+        prep_records['dev_npz'] = build_features(args, dev_examples, "dev", args.dev_record_file, word2idx, char2idx)
 
         if args.include_test_examples:
-            test_meta = build_features(args, test_examples, "test",
+            prep_records['test_npz'] = build_features(args, test_examples, "test",
                                        args.test_record_file, word2idx, char2idx, is_test=True)
-            save_as_json(args, args.test_meta_file, test_meta, message="test meta")
 
-        save_as_json(args, args.dev_eval_file, dev_eval, message="dev eval")
-        save_as_json(args, args.dev_meta_file, dev_meta, message="dev meta")
+        prep_records['dev_eval'] = save_as_json(args, args.dev_eval_file, dev_eval, message="dev eval")
 
+    prep_records['args'] = {json.dumps(vars(args), indent=2, sort_keys=True)}
 
-if __name__ == '__main__':
-    # Get command-line args
-    args_ = src.options.get_preproc_args()
+    f_name = prep_records['name'] + '_records'
+    print(save_as_json(args, f_name, prep_records, message='prep records'))
 
+def setup_pre_process(args_):
     # Download resources
     if args_.download:
         download(args_)
@@ -736,12 +755,10 @@ if __name__ == '__main__':
         # args_.dev_file = url_to_data_path(args_.data_root, args_.dev_url)
         # if args_.include_test_examples:
         #    args_.test_file = url_to_data_path(args_.test_url)
-
     args_.train_file = os.path.join(args_.data_root, args_.dataset_name, args_.train_file)
     args_.dev_file = os.path.join(args_.data_root, args_.dataset_name, args_.dev_file)
     if args_.include_test_examples:
         args_.test_file = os.path.join(args_.data_root, args_.dataset_name, args_.test_file)
-
     if args_.use_pt_we:
         glove_dir = url_to_data_path(args_.data_root, args_.glove_url.replace('.zip', ''))
         glove_ext = f'.txt' if str(glove_dir).endswith('d') else f'.{args_.glove_dim}d.txt'
@@ -749,8 +766,10 @@ if __name__ == '__main__':
     else:
         args_.we_file = None
 
-    # Import spacy language model
-    nlp = spacy.blank("en")
+
+if __name__ == '__main__':
+    # Get command-line args
+    args_ = src.options.add_preproc_args(parser=None)
 
     # Preprocess dataset
     pre_process(args_)

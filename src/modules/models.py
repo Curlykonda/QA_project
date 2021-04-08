@@ -23,26 +23,32 @@ class BiDAF(nn.Module):
         d_hidden (int): Number of features in the hidden state at each layer.
         p_drop (float): Dropout probability.
     """
-    def __init__(self, word_vectors, d_hidden, p_drop=0.):
+    def __init__(self, args, word_vectors, char_vectors, p_drop=0.):
         super(BiDAF, self).__init__()
-        self.emb = BiDAF_Embedding(word_vectors=word_vectors,
-                                   d_hidden=d_hidden,
-                                   p_drop=p_drop)
+
+        self.d_hidden = args.d_hidden
+        # 0. determine if char emb will be used an adjust 'd_hidden' accordingly
+        self.d_hidden_emb = self.d_hidden if char_vectors is None else 2 * self.d_hidden
+
+        self.emb = BiDAF_Embedding(args,
+                                   word_vectors=word_vectors,
+                                   char_vectors=char_vectors,
+                                   d_hidden=self.d_hidden_emb)
         # contextual emb, i.e. interaction of context words independent of query
-        self.enc = BiLSTM_Encoder(d_input=d_hidden,
-                                  d_hidden=d_hidden,
+        self.enc = BiLSTM_Encoder(d_input=self.d_hidden_emb,
+                                  d_hidden=self.d_hidden,
                                   n_layers=1,
                                   drop_prob=p_drop)
         # attention flow, i.e. query-context interactions
-        self.attn_flow_layer = BiDAFAttention(hidden_size=2 * d_hidden,
+        self.attn_flow_layer = BiDAFAttention(hidden_size=2 * self.d_hidden,
                                               drop_prob=p_drop)
         # modelling layer, interaction among context words conditioned on queries
-        self.modelling_layer = BiLSTM_Encoder(d_input=8 * d_hidden,
-                                              d_hidden=d_hidden,
+        self.modelling_layer = BiLSTM_Encoder(d_input=8 * self.d_hidden,
+                                              d_hidden=self.d_hidden,
                                               n_layers=2,
                                               drop_prob=p_drop)
         # output layer to produce logits of start & end indices
-        self.out = BiDAFOutput(d_hidden=d_hidden,
+        self.out = BiDAFOutput(d_hidden=self.d_hidden,
                                drop_prob=p_drop)
 
     def forward(self, cw_idxs, qw_idxs):
@@ -77,7 +83,8 @@ class RobertaQA(nn.Module):
         - Output layer: Simple layer (e.g., fc + softmax) to get final outputs.
     Args:
 
-        d_hidden (int): Number of features in the hidden state at each layer.
+        freeze_enc (bool): Fix weights of pretrained BERT encoder
+        freeze_emb (bool): Fix pretrained word embeddings of BERT encoder
         p_drop (float): Dropout probability.
     """
     def __init__(self, freeze_enc=True, freeze_emb=False, d_hidden=768, p_drop=0.1, n_outputs=2):
@@ -103,9 +110,9 @@ class RobertaQA(nn.Module):
         #self.c_len = max_context_len + 1 # seq_len + [CLS]
 
 
-    def forward(self, c_q_idxs, attn_mask):
+    def forward(self, q_c_idxs, attn_mask):
 
-        enc_out = self.roberta_enc(c_q_idxs, attention_mask=attn_mask)
+        enc_out = self.roberta_enc(q_c_idxs, attention_mask=attn_mask)
 
         # (bs x seq_len x d_hidden)
         enc_seq = enc_out[0] # last hidden layer encodings for all tokens
@@ -120,3 +127,13 @@ class RobertaQA(nn.Module):
         start_logits.masked_fill_((1 - attn_mask).bool(), -eps)
         end_logits.masked_fill_((1 - attn_mask).bool(), -eps)
         return start_logits, end_logits
+
+
+class QA_Net(nn.Module):
+
+    def __init__(self):
+        pass
+
+    def forward(self, q_idxs, c_idxs, attn_mask):
+        pass
+
