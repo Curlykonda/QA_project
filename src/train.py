@@ -39,6 +39,7 @@ def train_bert(args):
     model = model.to(device)
     model.train()
     log.info(f'Trainable params: {utils.count_model_params(model)}')
+    log.info(f'Est. memory for model: {utils.estimate_model_memory(model)}')
 
     optimizer, scheduler, ema = get_optim_schedule(args, model)
     #criterion = nn.CrossEntropyLoss()
@@ -210,8 +211,8 @@ def get_optim_schedule(args, model):
 
 def setup_train(args):
     # Set up logging and devices
-    args.save_dir = utils.get_save_dir(args.save_dir, args.name, training=True)
-    log = utils.get_logger(args.save_dir, args.name)
+    args.save_dir = utils.get_save_dir(args.save_dir, args.model_name, training=True)
+    log = utils.get_logger(args.save_dir, args.model_name)
     tbx = SummaryWriter(args.save_dir)
     device, args.gpu_ids = utils.get_available_devices()
     log.info(f'Args: {dumps(vars(args), indent=4, sort_keys=True)}')
@@ -256,6 +257,7 @@ def train_bidaf(args):
         raise ValueError()
 
     log.info(f'Trainable params: {utils.count_model_params(model)}')
+    log.info(f'Est. memory for model: {utils.estimate_model_memory(model)}')
     #model = nn.DataParallel(model, args.gpu_ids)
 
     # load checkpoint
@@ -341,3 +343,13 @@ def train_bidaf(args):
                                    step=step,
                                    split='dev',
                                    num_visuals=args.num_visuals)
+
+if __name__ == '__main__':
+    args = get_train_args()
+
+    if 'bidaf' == args.model_name:
+        train_bidaf(args)
+    elif 'roberta-qa' == args.model_name:
+        train_bert(args)
+    else:
+        raise ValueError(args.model_name)

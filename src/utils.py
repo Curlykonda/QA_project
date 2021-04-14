@@ -251,6 +251,22 @@ def save_preds(preds, save_dir, file_name='predictions.csv'):
 
     return save_path
 
+def estimate_model_memory(model, to_string=True):
+    mem_params = sum([param.nelement() * param.element_size() for param in model.parameters()])
+    mem_bufs = sum([buf.nelement() * buf.element_size() for buf in model.buffers()])
+
+    mem = mem_params + mem_bufs  # in bytes
+
+    if to_string:
+
+        if mem > 1e6:
+            return (f'{mem // 1e6} MB')
+        elif mem > 1e3:
+            return (f'{mem // 1e3} KB')
+        else:
+            return (f'{mem} B')
+    else:
+        return mem
 
 def get_save_dir(base_dir: str, name: str, training: bool, use_date=True, id_max=100) -> str:
     """Get a unique save directory by appending the smallest positive integer

@@ -4,11 +4,43 @@ from src.utils import get_data_root, get_project_root, get_project_root_path
 
 MODEL_NAMES = ['bidaf', 'roberta-qa']
 
+
+def add_common_args(parser=None):
+    """Add arguments common to all 3 scripts: setup.py, train.py, test.py"""
+    if parser is None:
+        parser = argparse.ArgumentParser()
+
+    parser.add_argument('--project_root', type=str, default=get_project_root())
+    parser.add_argument('--data_root', type=str, default=get_data_root())
+    parser.add_argument('--dataset_name', type=str, default='squad')
+
+    parser.add_argument('--train_record_file', type=str, default='train.npz')
+    parser.add_argument('--dev_record_file', type=str, default='dev.npz')
+    parser.add_argument('--test_record_file', type=str, default='test.npz')
+
+    parser.add_argument('--use_pt_we', type=bool, default=True, help="Use pre-trained word embeddings")
+    parser.add_argument('--use_roberta_token', type=bool, default=False, help="Use RobertaTokenizer to map words to indices")
+    parser.add_argument('--word_emb_file', type=str, default='glove_word_emb.json', help='file name where to save relevant word embeddings')
+    parser.add_argument('--char_emb_file', type=str, default='char_emb.json')
+
+    parser.add_argument('--train_eval_file', type=str, default='train_eval.json')
+    parser.add_argument('--dev_eval_file', type=str, default='dev_eval.json')
+    parser.add_argument('--test_eval_file', type=str, default='test_eval.json')
+
+    parser.add_argument('--use_squad_v2',
+                        type=lambda s: s.lower().startswith('t'),
+                        default=False,
+                        help='Whether to use SQuAD 2.0 (unanswerable) questions.')
+    parser.add_argument('--debug', type=bool, default=True)
+
+    return parser
+
+
 def add_preproc_args(parser):
     """Get arguments needed for pre-processing SQuAD """
     #parser = argparse.ArgumentParser('Download and pre-process SQuAD')
     if parser is None:
-        parser = get_common_args()
+        parser = add_common_args()
     #add_common_args(parser)
 
     parser.add_argument('--download', type=int, default=0)
@@ -66,11 +98,12 @@ def add_preproc_args(parser):
     return args
 
 
-def add_train_args(parser):
+def get_train_args(parser=None):
     """Get arguments needed in train.py."""
-    #parser = argparse.ArgumentParser('Train a model on SQuAD')
+    if parser is None:
+        parser = argparse.ArgumentParser('Train a model on SQuAD')
 
-    #add_common_args(parser)
+    add_common_args(parser)
     add_train_test_args(parser)
 
     parser.add_argument('--eval_steps',
@@ -116,11 +149,13 @@ def add_train_args(parser):
     return args
 
 
-def add_test_args(parser):
+def get_test_args(parser=None):
     """Get arguments needed in test.py."""
-    #parser = argparse.ArgumentParser('Test a trained model on SQuAD')
 
-    #add_common_args(parser)
+    if parser is None:
+        parser = argparse.ArgumentParser('Test a trained model on SQuAD')
+
+    add_common_args(parser)
     add_train_test_args(parser)
 
     parser.add_argument('--split',
@@ -141,70 +176,25 @@ def add_test_args(parser):
     return args
 
 
-def get_common_args():
-    """Add arguments common to all 3 scripts: setup.py, train.py, test.py"""
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument('--mode', type=str, default='train', choices=['preproc', 'train', 'test'])
-
-    parser.add_argument('--project_root', type=str, default=get_project_root())
-    parser.add_argument('--data_root', type=str, default=get_data_root())
-    parser.add_argument('--dataset_name', type=str, default='squad')
-
-    parser.add_argument('--train_record_file', type=str, default='train.npz')
-    parser.add_argument('--dev_record_file', type=str, default='dev.npz')
-    parser.add_argument('--test_record_file', type=str, default='test.npz')
-
-    parser.add_argument('--use_pt_we', type=bool, default=True, help="Use pre-trained word embeddings")
-    parser.add_argument('--use_roberta_token', type=bool, default=False, help="Use RobertaTokenizer to map words to indices")
-    parser.add_argument('--word_emb_file', type=str, default='glove_word_emb.json', help='file name where to save relevant word embeddings')
-    parser.add_argument('--char_emb_file', type=str, default='char_emb.json')
-
-    parser.add_argument('--train_eval_file', type=str, default='train_eval.json')
-    parser.add_argument('--dev_eval_file', type=str, default='dev_eval.json')
-    parser.add_argument('--test_eval_file', type=str, default='test_eval.json')
-
-    parser.add_argument('--use_squad_v2',
-                        type=lambda s: s.lower().startswith('t'),
-                        default=False,
-                        help='Whether to use SQuAD 2.0 (unanswerable) questions.')
-    parser.add_argument('--debug', type=bool, default=False)
-
-    return parser
-
 
 def add_train_test_args(parser):
     """Add arguments common to train.py and test.py"""
-    parser.add_argument('--name',
-                        '-n',
-                        type=str,
-                        #required=True,
-                        default='bidaf',
-                        help='Name to identify training or test run.')
-                        # roberta-qa
 
+    parser.add_argument('--mode', type=str, default='train', choices=['train', 'test'])
     parser.add_argument('--model_name', type=str, default='bidaf', choices=MODEL_NAMES)
-    parser.add_argument('--optim', type=str, default='adam', choices=['adam', 'adadelta'])
 
-    parser.add_argument('--max_ans_len',
-                        type=int,
-                        default=15,
-                        help='Maximum length of a predicted answer.')
+    parser.add_argument('--optim', type=str, default='adam', choices=['adam', 'adadelta'])
     parser.add_argument('--num_workers', type=int, default=0, help='Number of sub-processes to use per data loader.')
+
+    parser.add_argument('--max_ans_len', type=int, default=15, help='Maximum length of a predicted answer.')
+
     parser.add_argument('--save_dir',
                         type=str,
                         default=str(get_project_root_path().joinpath('save')),
                         help='Base directory for saving information.')
-    parser.add_argument('--batch_size',
-                        type=int,
-                        default=6, #64
-                        help='Batch size per GPU. Scales automatically when \
-                              multiple GPUs are available.')
+    parser.add_argument('--batch_size', type=int, default=6, help='Batch size per GPU')
 
-    parser.add_argument('--d_hidden',
-                        type=int,
-                        default=100,
-                        help='Number of features in encoder hidden layers.')
+    parser.add_argument('--d_hidden', type=int, default=100, help='Number of features in encoder hidden layers.')
 
     parser.add_argument('--num_visuals', type=int, default=10, help='Number of examples to visualize in TensorBoard.')
     parser.add_argument('--load_path', type=str, default=None, help='Path to load as a model checkpoint.')
