@@ -27,7 +27,6 @@ def get_data_root() -> str:
     return str(get_project_root_path().joinpath("data"))
 
 
-
 class AverageMeter:
     """Keep track of average values over time.
     Adapted from:
@@ -286,7 +285,8 @@ def get_save_dir(base_dir: str, name: str, training: bool, use_date=True, id_max
             dir_name = f'{name}-{date}--{uid:02d}'
         else:
             dir_name = f'{name}--{uid:02d}'
-        save_dir = Path(base_dir).joinpath(subdir, dir_name)
+
+        save_dir = os.path.join(base_dir, subdir, dir_name)
 
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
@@ -574,10 +574,9 @@ def compute_f1(a_gold, a_pred):
     f1 = (2 * precision * recall) / (precision + recall)
     return f1
 
-def get_file_path(data_root, dataset_name: str, file_name:str):
-    if isinstance(data_root, Path):
-        return data_root.joinpath(dataset_name, file_name)
-    elif isinstance(data_root, str):
-        return Path(data_root).joinpath(dataset_name, file_name)
+def get_file_path(data_root: str, dataset_name: str, file_name:str) -> str:
+
+    if isinstance(data_root, str):
+        return os.path.join(data_root, dataset_name, file_name)
     else:
-        raise ValueError("data_root neither Path nor string")
+        raise ValueError("data_root not 'string'")
