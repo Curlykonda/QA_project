@@ -764,9 +764,10 @@ def setup_pre_process(args_):
     if args_.include_test_examples:
         args_.test_file = os.path.join(args_.data_root, args_.dataset_name, args_.test_file)
     if args_.use_pt_we:
-        glove_dir = url_to_data_path(args_.data_root, args_.glove_url.replace('.zip', ''))
-        glove_ext = f'.txt' if str(glove_dir).endswith('d') else f'.{args_.glove_dim}d.txt'
-        args_.we_file = os.path.join(glove_dir, os.path.basename(glove_dir), glove_ext)
+        glove_dir = os.path.join(args_.data_root, args_.glove_dir) if args_.glove_dir is not None else os.path.join(args_.data_root, 'glove')
+        glove_f_name = args_.glove_url.replace('.zip', '').split('/')[-1]
+        glove_ext = f'.txt' if str(glove_f_name).endswith('d') else f'.{args_.glove_dim}d.txt'
+        args_.we_file = os.path.join(glove_dir, glove_f_name + glove_ext)
     else:
         args_.we_file = None
 

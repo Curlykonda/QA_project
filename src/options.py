@@ -19,7 +19,7 @@ def add_common_args(parser=None):
     parser.add_argument('--test_record_file', type=str, default='test.npz')
 
     parser.add_argument('--use_pt_we', type=bool, default=True, help="Use pre-trained word embeddings")
-    parser.add_argument('--use_roberta_token', type=bool, default=False, help="Use RobertaTokenizer to map words to indices")
+    parser.add_argument('--use_roberta_token', type=bool, default=False, action="store_true", help="Use RobertaTokenizer to map words to indices")
     parser.add_argument('--word_emb_file', type=str, default='glove_word_emb.json', help='file name where to save relevant word embeddings')
     parser.add_argument('--char_emb_file', type=str, default='char_emb.json')
 
@@ -53,7 +53,6 @@ def add_preproc_args(parser):
     parser.add_argument('--train_file', type=str, default='train-v1.1.json')
     parser.add_argument('--dev_file', type=str, default='dev-v1.1.json')
 
-    parser.add_argument('--glove_url', type=str, default='http://nlp.stanford.edu/data/glove.840B.300d.zip')
     parser.add_argument('--tokenizer', type=str, default='spacy', choices=['spacy', 'roberta'])
 
     parser.add_argument('--dev_meta_file', type=str, default='dev_meta.json')
@@ -75,18 +74,11 @@ def add_preproc_args(parser):
     parser.add_argument('--char_limit', type=int, default=16, help='Max number of chars to keep from a word')
     parser.add_argument('--char_dim', type=int, default=64, help='Size of char vectors (char-level embeddings)')
 
-    parser.add_argument('--glove_dim',
-                        type=int,
-                        default=300,
-                        help='Size of GloVe word vectors to use')
-    parser.add_argument('--we_dim',
-                        type=int,
-                        default=300,
-                        help='Size of word embeddings vectors')
-    parser.add_argument('--glove_num_vecs',
-                        type=int,
-                        default=2196017,
-                        help='Number of GloVe vectors')
+    parser.add_argument('--glove_url', type=str, default='http://nlp.stanford.edu/data/glove.840B.300d.zip')
+    parser.add_argument('--glove_dir', type=str, default='glove')
+    parser.add_argument('--glove_dim', type=int, default=300, help='Size of GloVe word vectors to use')
+    parser.add_argument('--we_dim', type=int, default=300, help='Size of word embeddings vectors')
+    parser.add_argument('--glove_num_vecs', type=int, default=2196017, help='Number of GloVe vectors')
 
     parser.add_argument('--include_test_examples',
                         type=lambda s: s.lower().startswith('t'),
