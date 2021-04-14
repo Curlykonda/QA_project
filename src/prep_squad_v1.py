@@ -44,8 +44,8 @@ def download_url(url, output_path, show_progress=True):
         urllib.request.urlretrieve(url, output_path)
 
 
-def url_to_data_path(data_root: str, url) -> Path:
-    return Path(data_root).joinpath(url.split('/')[-1])
+def url_to_data_path(data_root: str, url) -> str:
+    return os.path.join(data_root, url.split('/')[-1])
 
 
 def download(args):
@@ -270,7 +270,7 @@ def get_embedding(counter, data_type, min_freq=-1, vocab_size=30000, emb_file=No
     :param data_type:
     :param min_freq:
     :param vocab_size (int): maximum number of words in vocabulary
-    :param emb_file (Path): txt file containing pre-trained word embeddings
+    :param emb_file (str): txt file containing pre-trained word embeddings
     :param vec_size:
     :param num_vectors:
     :return:
@@ -654,8 +654,8 @@ def save_as_json(args, filename, obj, message=None):
     return f_name
 
 
-def build_data_path(args, file_name) -> Path:
-    return Path(args.data_root).joinpath(args.dataset_name, file_name)
+def build_data_path(args, file_name) -> str:
+    return os.path.join(args.data_root, args.dataset_name, file_name)
 
 def pre_process(args):
     setup_pre_process(args)
@@ -761,7 +761,7 @@ def setup_pre_process(args_):
     if args_.use_pt_we:
         glove_dir = url_to_data_path(args_.data_root, args_.glove_url.replace('.zip', ''))
         glove_ext = f'.txt' if str(glove_dir).endswith('d') else f'.{args_.glove_dim}d.txt'
-        args_.we_file = str(glove_dir.joinpath(os.path.basename(glove_dir) + glove_ext))
+        args_.we_file = os.path.join(glove_dir, os.path.basename(glove_dir), glove_ext)
     else:
         args_.we_file = None
 
