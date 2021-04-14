@@ -663,7 +663,7 @@ def pre_process(args):
     # Process training set and use it to decide on the word/character vocabularies
     debug = args.debug
     prep_records = {'name': None, 'prefix': None}  # record which specific files are generated and shall be used after preprocessing
-    print(f'{json.dumps(args(vars), indent=2, sort_keys=True)}')
+    print(f'{json.dumps(vars(args), indent=2, sort_keys=True)}')
 
     if args.use_roberta_token:
         # TODO: add function to get tokenizer (for other models)
