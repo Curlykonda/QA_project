@@ -4,6 +4,15 @@ from src.utils import get_data_root, get_project_root, get_project_root_path
 
 MODEL_NAMES = ['bidaf', 'roberta-qa']
 
+def str2bool(v):
+    if isinstance(v, bool):
+       return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 def add_common_args(parser=None):
     """Add arguments common to all 3 scripts: setup.py, train.py, test.py"""
@@ -18,8 +27,8 @@ def add_common_args(parser=None):
     parser.add_argument('--dev_record_file', type=str, default='dev.npz')
     parser.add_argument('--test_record_file', type=str, default='test.npz')
 
-    parser.add_argument('--use_pt_we', type=bool, default=True, help="Use pre-trained word embeddings")
-    parser.add_argument('--use_roberta_token', type=bool, default=False, action="store_true", help="Use RobertaTokenizer to map words to indices")
+    parser.add_argument('--use_pt_we', type=str2bool, default=True, help="Use pre-trained word embeddings")
+    parser.add_argument('--use_roberta_token', type=str2bool, default=False, help="Use RobertaTokenizer to map words to indices")
     parser.add_argument('--word_emb_file', type=str, default='glove_word_emb.json', help='file name where to save relevant word embeddings')
     parser.add_argument('--char_emb_file', type=str, default='char_emb.json')
 
@@ -28,7 +37,7 @@ def add_common_args(parser=None):
     parser.add_argument('--test_eval_file', type=str, default='test_eval.json')
 
     parser.add_argument('--use_squad_v2',
-                        type=lambda s: s.lower().startswith('t'),
+                        type=str2bool,
                         default=False,
                         help='Whether to use SQuAD 2.0 (unanswerable) questions.')
     parser.add_argument('--debug', type=bool, default=False)
