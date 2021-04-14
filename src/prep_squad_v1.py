@@ -663,6 +663,7 @@ def pre_process(args):
     # Process training set and use it to decide on the word/character vocabularies
     debug = args.debug
     prep_records = {'name': None, 'prefix': None}  # record which specific files are generated and shall be used after preprocessing
+    print(json.dumps(args(vars), indent=2, sort_keys=True))
 
     if args.use_roberta_token:
         # TODO: add function to get tokenizer (for other models)
@@ -741,10 +742,10 @@ def pre_process(args):
 
         prep_records['dev_eval'] = save_as_json(args, args.dev_eval_file, dev_eval, message="dev eval")
 
-    for k, v in vars(args).items():
-        if isinstance(v, Path):
-            print(f'{k}: {v}')
-    #prep_records['args'] = {json.dumps(vars(args), indent=2, sort_keys=True)}
+    # for k, v in vars(args).items():
+    #     if isinstance(v, Path):
+    #         print(f'{k}: {v}')
+    prep_records['args'] = {json.dumps(vars(args), indent=2, sort_keys=True)}
 
     f_name = prep_records['name'] + '_records.json'
     print(save_as_json(args, f_name, prep_records, message='prep records'))
@@ -759,6 +760,7 @@ def setup_pre_process(args_):
         #    args_.test_file = url_to_data_path(args_.test_url)
     args_.train_file = os.path.join(args_.data_root, args_.dataset_name, args_.train_file)
     args_.dev_file = os.path.join(args_.data_root, args_.dataset_name, args_.dev_file)
+
     if args_.include_test_examples:
         args_.test_file = os.path.join(args_.data_root, args_.dataset_name, args_.test_file)
     if args_.use_pt_we:
@@ -772,6 +774,5 @@ def setup_pre_process(args_):
 if __name__ == '__main__':
     # Get command-line args
     args_ = src.options.add_preproc_args(parser=None)
-
     # Preprocess dataset
     pre_process(args_)

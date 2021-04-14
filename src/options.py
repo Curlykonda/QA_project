@@ -31,7 +31,7 @@ def add_common_args(parser=None):
                         type=lambda s: s.lower().startswith('t'),
                         default=False,
                         help='Whether to use SQuAD 2.0 (unanswerable) questions.')
-    parser.add_argument('--debug', type=bool, default=True)
+    parser.add_argument('--debug', type=bool, default=False)
 
     return parser
 
