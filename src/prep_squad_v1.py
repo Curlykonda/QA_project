@@ -745,18 +745,17 @@ def pre_process(args):
 
         prep_records['dev_eval'] = save_as_json(args, args.dev_eval_file, dev_eval, message="dev eval")
 
-    # try:
-    #     prep_records['args'] = {json.dumps(vars(args), indent=2, sort_keys=True)}
-    # except:
-    for k, v in vars(args).items():
-        if isinstance(v, Path):
-            print(f'{k}: {v}')
-        elif isinstance(v, set):
-            print(f'{k}: {v}')
-
+    prep_records['args'] = {k: v for k, v in vars(args).items()}
     f_name = prep_records['name'] + '_records.json'
-    print(save_as_json(args, f_name, prep_records, message='prep records'))
 
+    try:
+        print(save_as_json(args, f_name, prep_records, message='prep records'))
+    except:
+        for k, v in vars(args).items():
+            if isinstance(v, Path):
+                print(f'{k}: {v}')
+            elif isinstance(v, set):
+                print(f'{k}: {v}')
 
 def setup_pre_process(args_):
     # Download resources
