@@ -748,14 +748,7 @@ def pre_process(args):
     prep_records['args'] = {k: v for k, v in vars(args).items()}
     f_name = prep_records['name'] + '_records.json'
 
-    try:
-        print(save_as_json(args, f_name, prep_records, message='prep records'))
-    except:
-        for k, v in vars(args).items():
-            if isinstance(v, Path):
-                print(f'{k}: {v}')
-            elif isinstance(v, set):
-                print(f'{k}: {v}')
+    print(f"To: {save_as_json(args, f_name, prep_records, message='prep records')}")
 
 def setup_pre_process(args_):
     # Download resources
