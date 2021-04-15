@@ -40,7 +40,7 @@ def add_common_args(parser=None):
                         type=str2bool,
                         default=False,
                         help='Whether to use SQuAD 2.0 (unanswerable) questions.')
-    parser.add_argument('--debug', type=bool, default=False)
+    parser.add_argument('--debug', type=str2bool, default=False)
 
     return parser
 
@@ -90,8 +90,8 @@ def add_preproc_args(parser):
     parser.add_argument('--glove_num_vecs', type=int, default=2196017, help='Number of GloVe vectors')
 
     parser.add_argument('--include_test_examples',
-                        type=lambda s: s.lower().startswith('t'),
-                        default=False, #True
+                        type=str2bool,
+                        default=False,
                         help='Process examples from the test set')
 
     args = parser.parse_args()
@@ -126,7 +126,7 @@ def get_train_args(parser=None):
     parser.add_argument('--max_checkpoints', type=int, default=5, help='Maximum number of checkpoints to keep on disk.')
     parser.add_argument('--max_grad_norm', type=float, default=5.0, help='Maximum gradient norm for gradient clipping.')
     parser.add_argument('--seed', type=int, default=224, help='Random seed for reproducibility.')
-    parser.add_argument('--use_ema', type=bool, default=1, help='use Exp Moving Average for model parameters')
+    parser.add_argument('--use_ema', type=str2bool, default=True, help='use Exp Moving Average for model parameters')
 
     parser.add_argument('--ema_decay',
                         type=float,
@@ -200,9 +200,9 @@ def add_train_test_args(parser):
     parser.add_argument('--num_visuals', type=int, default=10, help='Number of examples to visualize in TensorBoard.')
     parser.add_argument('--load_path', type=str, default=None, help='Path to load as a model checkpoint.')
 
-    parser.add_argument('--freeze_bert_encoder', type=bool, default=True, help='Freeze layers of *BERT encoder')
-    parser.add_argument('--freeze_we_embs', type=bool, default=False, help='Freeze word embeddings')
-    parser.add_argument('--set_finetune_def', type=bool, default=True, help='Activate default finetuning parameters (e.g. lr=2e-5)')
+    parser.add_argument('--freeze_bert_encoder', type=str2bool, default=True, help='Freeze layers of *BERT encoder')
+    parser.add_argument('--freeze_we_embs', type=str2bool, default=False, help='Freeze word embeddings')
+    parser.add_argument('--set_finetune_def', type=str2bool, default=False, help='Activate default finetuning parameters (e.g. lr=2e-5)')
 
     parser.add_argument('--char_n_filters', type=int, default=100)
     parser.add_argument('--char_kernel_size', type=int, default=5)
