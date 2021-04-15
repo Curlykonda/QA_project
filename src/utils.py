@@ -181,10 +181,13 @@ def get_available_devices():
     gpu_ids = []
     if torch.cuda.is_available():
         gpu_ids += [gpu_id for gpu_id in range(torch.cuda.device_count())]
-        device = torch.device(f'cuda:{gpu_ids[0]}')
+        gpu_name = f'cuda:{gpu_ids[0]}'
+        print(f"GPU available! Using {gpu_name}")
+        device = torch.device(gpu_name)
         torch.cuda.set_device(device)
         os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
     else:
+        print('No GPU available! Running on CPU instead')
         device = torch.device('cpu')
 
     return device, gpu_ids

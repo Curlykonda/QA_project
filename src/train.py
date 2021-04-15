@@ -45,7 +45,7 @@ def train_bert(args):
     #criterion = nn.CrossEntropyLoss()
     # get dataloader
     train_loader, dev_loader = get_dataloader(args, log)
-    dev_eval_file = utils.get_file_path(Path(args.data_root), args.dataset_name, args.dev_eval_file)
+    dev_eval_file = utils.get_file_path(args.data_root, args.dataset_name, args.dev_eval_file)
 
     # Training loop
     step = 0

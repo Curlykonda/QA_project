@@ -352,9 +352,6 @@ def build_bert_features(args, examples, tokenizer, data_split: str, out_file: st
                                       truncation="only_second",
                                       return_overflowing_tokens=True,
                                       return_offsets_mapping=True)
-        # except Exception as e:
-        #     print(n)
-        #     print(e)
 
         q_c_ids = example_tokenized['input_ids'][0]
         cls_index = q_c_ids.index(tokenizer.cls_token_id)
@@ -392,9 +389,6 @@ def build_bert_features(args, examples, tokenizer, data_split: str, out_file: st
                 c_start_idx += 1
             start_position = c_start_idx - 1
 
-            # if start_position >= 380:
-            #     print(n)
-
             while offsets[c_end_idx][1] >= end_char:
                 c_end_idx -= 1
             end_position = c_end_idx + 1
@@ -402,8 +396,6 @@ def build_bert_features(args, examples, tokenizer, data_split: str, out_file: st
         else:
             start_position, end_position = cls_index, cls_index
             # print("The answer is not in this feature.")
-
-        answer_token_span = end_position - start_position
 
         # TODO: truncate longer context passages instead of dropping them
         if drop_example(args, ques_token_span, context_token_span, start_position, end_position, is_test):
@@ -422,8 +414,8 @@ def build_bert_features(args, examples, tokenizer, data_split: str, out_file: st
         y2s.append(end_position)
         ids.append(example["id"])
 
-        if start_position > 380:
-            print(example["id"])
+        # if start_position > 380:
+        #     print(example["id"])
 
     print(f"Built {valid_ex} / {total_ex} instances of features in total")
 
