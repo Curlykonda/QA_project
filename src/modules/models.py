@@ -125,8 +125,9 @@ class RobertaQA(nn.Module):
         # mask off padding positions
         eps = 1e30
         bool_mask = (1 - attn_mask).bool() # orig attn_mask is 0 for mask positions
-        start_logits[bool_mask] = -eps # not sure if this retains information flow / gradient properly
-        end_logits[bool_mask] = -eps
+        start_logits = start_logits.masked_fill_(bool_mask, -eps)
+        # not sure if this retains information flow / gradient properly
+        end_logits = end_logits.masked_fill_(bool_mask, -eps)
 
         return start_logits, end_logits
 
