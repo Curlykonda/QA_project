@@ -169,8 +169,8 @@ def get_dataloader(args, log):
         col_fnc = squad_collate_fn
 
     if args.debug:
-        train_dataset = train_dataset.shrink_dataset(1000)
-        dev_dataset = dev_dataset.shrink_dataset(100)
+        train_dataset.shrink_dataset(1000)
+        dev_dataset.shrink_dataset(100)
 
     train_loader = data.DataLoader(train_dataset,
                                    batch_size=args.batch_size,
