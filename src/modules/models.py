@@ -122,10 +122,12 @@ class RobertaQA(nn.Module):
         start_logits = start_logits.squeeze(-1) # (bs x seq_len)
         end_logits = end_logits.squeeze(-1)
 
-        # potentially: add masked log_softmax here to account for padding tokens
+        # mask off padding positions
         eps = 1e30
-        start_logits.masked_fill_((1 - attn_mask).bool(), -eps)
-        end_logits.masked_fill_((1 - attn_mask).bool(), -eps)
+        bool_mask = (1 - attn_mask).bool() # orig attn_mask is 0 for mask positions
+        start_logits[bool_mask] = -eps # not sure if this retains information flow / gradient properly
+        end_logits[bool_mask] = -eps
+
         return start_logits, end_logits
 
 
