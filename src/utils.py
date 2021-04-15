@@ -14,14 +14,16 @@ import numpy as np
 
 from datetime import datetime
 
-
 from collections import Counter
+
 
 def get_project_root_path() -> Path:
     return Path(__file__).parent.parent
 
+
 def get_project_root() -> str:
     return str(get_project_root_path())
+
 
 def get_data_root() -> str:
     return str(get_project_root_path().joinpath("data"))
@@ -32,6 +34,7 @@ class AverageMeter:
     Adapted from:
         > https://github.com/pytorch/examples/blob/master/imagenet/main.py
     """
+
     def __init__(self):
         self.avg = 0
         self.sum = 0
@@ -68,6 +71,7 @@ class CheckpointSaver:
             minimizes the metric.
         log (logging.Logger): Optional logger for printing information.
     """
+
     def __init__(self, save_dir: str, max_checkpoints, metric_name,
                  maximize_metric=False, log=None):
         super(CheckpointSaver, self).__init__()
@@ -224,7 +228,7 @@ def visualize(tbx, pred_dict, eval_path, step, split, num_visuals):
                    + f'- **Context:** {context}\n'
                    + f'- **Answer:** {gold}\n'
                    + f'- **Prediction:** {pred}')
-        tbx.add_text(tag=f'{split}/{i+1}_of_{num_visuals}',
+        tbx.add_text(tag=f'{split}/{i + 1}_of_{num_visuals}',
                      text_string=tbl_fmt,
                      global_step=step)
 
@@ -253,6 +257,7 @@ def save_preds(preds, save_dir, file_name='predictions.csv'):
 
     return save_path
 
+
 def estimate_model_memory(model, to_string=True):
     mem_params = sum([param.nelement() * param.element_size() for param in model.parameters()])
     mem_bufs = sum([buf.nelement() * buf.element_size() for buf in model.buffers()])
@@ -269,6 +274,7 @@ def estimate_model_memory(model, to_string=True):
             return (f'{mem} B')
     else:
         return mem
+
 
 def get_save_dir(base_dir: str, name: str, training: bool, use_date=True, id_max=100) -> str:
     """Get a unique save directory by appending the smallest positive integer
@@ -308,11 +314,13 @@ def get_logger(log_dir: str, name):
     Returns:
         logger (logging.Logger): Logger instance for logging events.
     """
+
     class StreamHandlerWithTQDM(logging.Handler):
         """Let `logging` print without breaking `tqdm` progress bars.
         See Also:
             > https://stackoverflow.com/questions/38543506
         """
+
         def emit(self, record):
             try:
                 msg = self.format(record)
@@ -350,8 +358,10 @@ def get_logger(log_dir: str, name):
 
     return logger
 
+
 def count_model_params(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 
 def torch_from_json(path, dtype=torch.float32):
     """Load a PyTorch Tensor from a JSON file.
@@ -394,8 +404,8 @@ def discretize(p_start, p_end, max_len=15, no_answer=False):
         raise ValueError('Expected p_start and p_end to have values in [0, 1]')
 
     # Compute pairwise probabilities
-    p_start = p_start.unsqueeze(dim=2) # (bs x max_len x 1)
-    p_end = p_end.unsqueeze(dim=1) # (bs x 1 x max_len)
+    p_start = p_start.unsqueeze(dim=2)  # (bs x max_len x 1)
+    p_end = p_end.unsqueeze(dim=1)  # (bs x 1 x max_len)
     p_joint = torch.matmul(p_start, p_end)  # (batch_size, c_len, c_len)
 
     # Restrict to pairs (i, j) such that i <= j <= i + max_len - 1
@@ -426,6 +436,7 @@ def discretize(p_start, p_end, max_len=15, no_answer=False):
         end_idxs[p_no_answer > max_prob] = 0
 
     return start_idxs, end_idxs
+
 
 def convert_tokens(eval_dict, qa_id, y_start_list, y_end_list, no_answer):
     """Convert predictions to tokens from the context.
@@ -458,6 +469,7 @@ def convert_tokens(eval_dict, qa_id, y_start_list, y_end_list, no_answer):
             sub_dict[uuid] = context[start_idx: end_idx]
     return pred_dict, sub_dict
 
+
 def convert_bert_tokens(tokenizer, q_c_ids, qa_id, y_start_list, y_end_list, no_answer):
     """Convert predictions to tokens by decoding .
 
@@ -474,12 +486,12 @@ def convert_bert_tokens(tokenizer, q_c_ids, qa_id, y_start_list, y_end_list, no_
     """
 
     pred_dict = {}
-    #sub_dict = {}
+    # sub_dict = {}
     for qc_ids, qid, y_start, y_end in zip(q_c_ids, qa_id, y_start_list, y_end_list):
 
         if no_answer and (y_start == 0 or y_end == 0):
             pred_dict[str(qid)] = ''
-            #sub_dict[uuid] = ''
+            # sub_dict[uuid] = ''
         else:
             if no_answer:
                 y_start, y_end = y_start - 1, y_end - 1
@@ -488,9 +500,9 @@ def convert_bert_tokens(tokenizer, q_c_ids, qa_id, y_start_list, y_end_list, no_
             # need: 'eval_dict' contains 'answer_text' (not just span)
             # option 1: use BertTokenizer to decode tokenized context
             # option 2: store offset mapping & use to reconstruct original answer span
-            pred_answer = tokenizer.decode(qc_ids[y_start:y_end+1])
+            pred_answer = tokenizer.decode(qc_ids[y_start:y_end + 1])
             pred_dict[str(qid)] = pred_answer
-            #sub_dict[uuid] = context[start_idx: end_idx]
+            # sub_dict[uuid] = context[start_idx: end_idx]
 
     return pred_dict
 
@@ -577,9 +589,9 @@ def compute_f1(a_gold, a_pred):
     f1 = (2 * precision * recall) / (precision + recall)
     return f1
 
-def get_file_path(data_root: str, dataset_name: str, file_name:str) -> str:
 
+def get_file_path(data_root: str, dataset_name: str, file_name: str) -> str:
     if isinstance(data_root, str):
         return os.path.join(data_root, dataset_name, file_name)
     else:
-        raise ValueError("data_root not 'string'")
+        raise ValueError("data_root not 'string' but {}".format(type(data_root)))

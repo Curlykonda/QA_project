@@ -3,23 +3,23 @@ from collections import OrderedDict
 
 import torch
 from torch import nn
-import torch.nn.functional as F
+
 from tqdm import tqdm
 from transformers import RobertaTokenizerFast, PreTrainedTokenizerFast
 
 from src import utils as utils
 
 
-def eval_bert(model, data_loader, device, eval_file, max_len, use_squad_v2):
-    ce_meter = utils.AverageMeter()
-
+def eval_bert(model, data_loader, device, eval_file, max_len, use_squad_v2, debug=False):
     # get tokenizer to decode (pred) indices of Wordpiece tokens
     tokenizer = RobertaTokenizerFast.from_pretrained('roberta-base')
-
     assert isinstance(tokenizer, PreTrainedTokenizerFast)
 
-    model.eval()
+    ce_meter = utils.AverageMeter()
     pred_dict = {}
+
+    model.eval()
+
     with open(eval_file, 'r') as fh:
         gold_dict = json.load(fh)
     with torch.no_grad(), \
@@ -28,7 +28,6 @@ def eval_bert(model, data_loader, device, eval_file, max_len, use_squad_v2):
             # Setup for forward
             q_c_ids = q_c_ids.to(device)
             attn_mask = attn_mask.to(device)
-
             batch_size = q_c_ids.size(0)
 
             # Forward
@@ -60,9 +59,9 @@ def eval_bert(model, data_loader, device, eval_file, max_len, use_squad_v2):
                                                  ends.tolist(),
                                                  use_squad_v2)
             pred_dict.update(preds)
-            #
-            # if len(pred_dict) > 100:
-            #     break
+
+            if debug and len(pred_dict) > 100:
+                break
 
     model.train()
 
@@ -73,7 +72,6 @@ def eval_bert(model, data_loader, device, eval_file, max_len, use_squad_v2):
     if use_squad_v2:
         results_list.append(('AvNA', results['AvNA']))
     results = OrderedDict(results_list)
-
 
     return results, pred_dict
 

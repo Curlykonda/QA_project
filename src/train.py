@@ -6,7 +6,6 @@ import torch.optim as optim
 import torch.optim.lr_scheduler as sched
 from torch.utils.tensorboard import SummaryWriter
 
-
 import numpy as np
 from json import dumps
 import random
@@ -31,7 +30,6 @@ def train_bert(args):
     # else:
     #     log.info('Loading some other embeddings...')
 
-
     # build model
     log.info('Building model...')
     # args.freeze_bert_encoder, args.freeze_we_embs
@@ -42,7 +40,7 @@ def train_bert(args):
     log.info(f'Est. memory for model: {utils.estimate_model_memory(model)}')
 
     optimizer, scheduler, ema = get_optim_schedule(args, model)
-    #criterion = nn.CrossEntropyLoss()
+    # criterion = nn.CrossEntropyLoss()
     # get dataloader
     train_loader, dev_loader = get_dataloader(args, log)
     dev_eval_file = utils.get_file_path(args.data_root, args.dataset_name, args.dev_eval_file)
@@ -66,7 +64,6 @@ def train_bert(args):
 
     log_to_tbx(tbx, dev_eval_file, log, pred_dict, results, step, args.num_visuals)
 
-
     log.info('Training...')
     while epoch != args.num_epochs:
         epoch += 1
@@ -75,7 +72,7 @@ def train_bert(args):
              tqdm(total=len(train_loader)) as progress_bar:
             for q_c_ids, attn_mask, y1, y2, ids in train_loader:
                 # Setup for forward
-                q_c_ids = q_c_ids.to(device) # context-question-pair as word IDs
+                q_c_ids = q_c_ids.to(device)  # context-question-pair as word IDs
                 attn_mask = attn_mask.to(device)
 
                 batch_size = q_c_ids.size(0)
@@ -148,12 +145,10 @@ def log_to_tbx(tbx: SummaryWriter, dev_eval_file, log, pred_dict, results: dict,
 def get_dataloader(args, log):
     """
     Create (torch.utils.data.Dataloader) from preprocessed train and dev data
-
     """
 
     log.info('Building dataset...')
     data_path = Path(args.data_root)
-    # Train
 
     if args.use_roberta_token:
 
@@ -167,11 +162,15 @@ def get_dataloader(args, log):
     else:
 
         train_dataset = SQuAD(data_path.joinpath(args.dataset_name, args.train_record_file),
-                          args.use_squad_v2)
+                              args.use_squad_v2)
         dev_dataset = SQuAD(data_path.joinpath(args.dataset_name, args.dev_record_file),
                             args.use_squad_v2)
 
         col_fnc = squad_collate_fn
+
+    if args.debug:
+        train_dataset = train_dataset[:1000]
+        dev_dataset = dev_dataset[:100]
 
     train_loader = data.DataLoader(train_dataset,
                                    batch_size=args.batch_size,
@@ -187,8 +186,8 @@ def get_dataloader(args, log):
 
     return train_loader, dev_loader
 
-def get_optim_schedule(args, model):
 
+def get_optim_schedule(args, model):
     if args.use_ema:
         ema = EMA(model, args.ema_decay)  # Exponential Moving Average (over model parameters)
     else:
@@ -229,12 +228,13 @@ def setup_train(args):
 
     # Get saver
     saver = utils.CheckpointSaver(args.save_dir,
-                                 max_checkpoints=args.max_checkpoints,
-                                 metric_name=args.metric_name,
-                                 maximize_metric=args.maximize_metric,
-                                 log=log)
+                                  max_checkpoints=args.max_checkpoints,
+                                  metric_name=args.metric_name,
+                                  maximize_metric=args.maximize_metric,
+                                  log=log)
 
     return device, log, tbx, saver
+
 
 def train_bidaf(args):
     device, log, tbx, saver = setup_train(args)
@@ -243,7 +243,7 @@ def train_bidaf(args):
     log.info('Loading embeddings...')
 
     word_vectors = utils.torch_from_json(os.path.join(args.data_root, args.dataset_name, args.word_emb_file))
-    #char_vectors = utils.torch_from_json()
+    # char_vectors = utils.torch_from_json()
 
     # Get model
     log.info('Building model...')
@@ -258,7 +258,7 @@ def train_bidaf(args):
 
     log.info(f'Trainable params: {utils.count_model_params(model)}')
     log.info(f'Est. memory for model: {utils.estimate_model_memory(model)}')
-    #model = nn.DataParallel(model, args.gpu_ids)
+    # model = nn.DataParallel(model, args.gpu_ids)
 
     # load checkpoint
     # if args.load_path:
@@ -283,7 +283,7 @@ def train_bidaf(args):
         epoch += 1
         log.info(f'Starting epoch {epoch}...')
         with torch.enable_grad(), \
-                tqdm(total=len(train_loader.dataset)) as progress_bar:
+             tqdm(total=len(train_loader.dataset)) as progress_bar:
             for cw_idxs, cc_idxs, qw_idxs, qc_idxs, y1, y2, ids in train_loader:
                 # Setup for forward
                 cw_idxs = cw_idxs.to(device)
@@ -301,7 +301,7 @@ def train_bidaf(args):
                 loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
                 optimizer.step()
-                scheduler.step() #step // batch_size
+                scheduler.step()  # step // batch_size
                 ema(model, step // batch_size)
 
                 # Log info
@@ -338,11 +338,12 @@ def train_bidaf(args):
                     for k, v in results.items():
                         tbx.add_scalar(f'dev/{k}', v, step)
                     utils.visualize(tbx,
-                                   pred_dict=pred_dict,
-                                   eval_path=dev_eval_file,
-                                   step=step,
-                                   split='dev',
-                                   num_visuals=args.num_visuals)
+                                    pred_dict=pred_dict,
+                                    eval_path=dev_eval_file,
+                                    step=step,
+                                    split='dev',
+                                    num_visuals=args.num_visuals)
+
 
 if __name__ == '__main__':
     args = get_train_args()
