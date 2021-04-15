@@ -657,12 +657,14 @@ def save_as_json(args, filename, obj, message=None):
 def build_data_path(args, file_name) -> str:
     return os.path.join(args.data_root, args.dataset_name, file_name)
 
+
 def pre_process(args):
     setup_pre_process(args)
 
     # Process training set and use it to decide on the word/character vocabularies
     debug = args.debug
-    prep_records = {'name': None, 'prefix': None}  # record which specific files are generated and shall be used after preprocessing
+    prep_records = {'name': None,
+                    'prefix': None}  # record which specific files are generated and shall be used after preprocessing
     print(f'{json.dumps(vars(args), indent=2, sort_keys=True)}')
 
     if args.use_roberta_token:
@@ -720,7 +722,8 @@ def pre_process(args):
             prep_records['char_dict'] = save_as_json(args, args.char2idx_file, char2idx, message="char dictionary")
             prep_records['char_emb'] = save_as_json(args, args.char_emb_file, char_emb_mat, message="char embedding")
 
-        prep_records['train_npz'] = build_features(args, train_examples, "train", args.train_record_file, word2idx, char2idx)
+        prep_records['train_npz'] = build_features(args, train_examples, "train", args.train_record_file, word2idx,
+                                                   char2idx)
         prep_records['train_eval'] = save_as_json(args, args.train_eval_file, train_eval, message="train eval")
 
         # Process dev and test sets
@@ -738,21 +741,22 @@ def pre_process(args):
 
         if args.include_test_examples:
             prep_records['test_npz'] = build_features(args, test_examples, "test",
-                                       args.test_record_file, word2idx, char2idx, is_test=True)
+                                                      args.test_record_file, word2idx, char2idx, is_test=True)
 
         prep_records['dev_eval'] = save_as_json(args, args.dev_eval_file, dev_eval, message="dev eval")
 
-    try:
-        prep_records['args'] = {json.dumps(vars(args), indent=2, sort_keys=True)}
-    except:
-        for k, v in vars(args).items():
-            if isinstance(v, Path):
-                print(f'{k}: {v}')
-            elif isinstance(v, set):
-                print(f'{k}: {v}')
+    # try:
+    #     prep_records['args'] = {json.dumps(vars(args), indent=2, sort_keys=True)}
+    # except:
+    for k, v in vars(args).items():
+        if isinstance(v, Path):
+            print(f'{k}: {v}')
+        elif isinstance(v, set):
+            print(f'{k}: {v}')
 
     f_name = prep_records['name'] + '_records.json'
     print(save_as_json(args, f_name, prep_records, message='prep records'))
+
 
 def setup_pre_process(args_):
     # Download resources
@@ -768,7 +772,8 @@ def setup_pre_process(args_):
     if args_.include_test_examples:
         args_.test_file = os.path.join(args_.data_root, args_.dataset_name, args_.test_file)
     if args_.use_pt_we:
-        glove_dir = os.path.join(args_.data_root, args_.glove_dir) if args_.glove_dir is not None else os.path.join(args_.data_root, 'glove')
+        glove_dir = os.path.join(args_.data_root, args_.glove_dir) if args_.glove_dir is not None else os.path.join(
+            args_.data_root, 'glove')
         glove_f_name = args_.glove_url.replace('.zip', '').split('/')[-1]
         glove_ext = f'.txt' if str(glove_f_name).endswith('d') else f'.{args_.glove_dim}d.txt'
         args_.we_file = os.path.join(glove_dir, glove_f_name + glove_ext)
